@@ -1,0 +1,818 @@
+WEBVTT
+
+1
+00:00:00.440 --> 00:00:02.470
+Arnav: Guys, can we have your videos on?
+
+2
+00:00:11.520 --> 00:00:18.290
+Arnav: Yeah, so basically, actually, this was a very short notice meeting, because we have
+
+3
+00:00:18.570 --> 00:00:27.650
+Arnav: Got to know that many of the teams are having issues with their goals. Many of the team members are having issues with their goals, which they have been assigned to.
+
+4
+00:00:27.930 --> 00:00:34.400
+Arnav: And because this is, like… The pilot program… pilot project which we are
+
+5
+00:00:34.910 --> 00:00:41.140
+Arnav: like, implementing in our organization, so it's subject to changes. So that's why we are… have…
+
+6
+00:00:41.690 --> 00:00:44.889
+Arnav: Thought of a different approach which we can use to this.
+
+7
+00:00:45.220 --> 00:00:48.740
+Arnav: So, first of all, I just want to know that, like.
+
+8
+00:00:49.750 --> 00:00:54.549
+Arnav: For the three teams… from the three teams who are present here, like.
+
+9
+00:00:54.690 --> 00:00:59.860
+Arnav: What's the status of your team's progress in terms of the WBSN approach?
+
+10
+00:01:03.090 --> 00:01:11.679
+Arnav: like, I'm not asking it because… as a PM, but, like, just to understand that how much you guys have done, because, like, the approach needs to be changed now.
+
+11
+00:01:11.910 --> 00:01:13.070
+Arnav: So that's why.
+
+12
+00:01:17.690 --> 00:01:25.709
+Purvi: The goals for Charu were being written wrong. She told me these are not her real goals, don't need to work on that.
+
+13
+00:01:25.710 --> 00:01:31.199
+Arnav: No, no, no, no, no, yeah, that I understand. I'm asking in terms of the progress, where have you guys reached?
+
+14
+00:01:32.400 --> 00:01:37.380
+Arnav: Are they to be started, are they in progress, or they are, like, close to completion?
+
+15
+00:01:44.720 --> 00:01:55.609
+Inaas: In my team, like, I have made the WBSN approach, I've submitted it to Sushma, but I don't think any other member has done it as of yet.
+
+16
+00:01:56.740 --> 00:02:03.290
+Sushma: In marketing, in us, and I only did. Rest of them did attach their WASN approach.
+
+17
+00:02:06.390 --> 00:02:07.000
+Arnav: Okay.
+
+18
+00:02:07.000 --> 00:02:15.140
+Sushma: Do you know in us, do you know whether there are, Purvi, did you, did you complete your WBS approach in marketing?
+
+19
+00:02:16.450 --> 00:02:20.619
+Purvi: Yes, I've done that, but I haven't attached, I'll attach it by today.
+
+20
+00:02:20.790 --> 00:02:21.970
+Purvi: Hard them all.
+
+21
+00:02:26.810 --> 00:02:35.219
+Arnav: Okay, growth till what I know, like, it's in progress, and for me, it's yet to be started. I think that's the same case for Purvi as well.
+
+22
+00:02:36.340 --> 00:02:42.650
+Sushma: CB and RAB, everyone, attached to the WBSN approach. CB, everyone.
+
+23
+00:02:42.650 --> 00:02:44.160
+Arnav: They have attached already.
+
+24
+00:02:44.360 --> 00:02:46.020
+Sushma: RAB also done…
+
+25
+00:02:50.000 --> 00:02:52.590
+Arnav: Okay, so… okay.
+
+26
+00:02:53.980 --> 00:03:01.349
+Arnav: So if that's already done, then I think there is no point, like, in redoing it, but I'd still like to say that.
+
+27
+00:03:01.640 --> 00:03:09.270
+Arnav: So, the problem which is coming up is that many of the team members, like, are saying that the goals are not making sense to them.
+
+28
+00:03:09.410 --> 00:03:11.829
+Arnav: Or they don't know how to approach the goals.
+
+29
+00:03:12.080 --> 00:03:19.249
+Arnav: This is what we have received from the SPOCs as well, and from the individual team members as well, from multiple teams.
+
+30
+00:03:20.060 --> 00:03:25.849
+Arnav: So, what we have thought of is that, like, You can just keep the…
+
+31
+00:03:26.560 --> 00:03:32.980
+Arnav: delegation part aside, like, the goal to whom it is, assigned to. You can keep that aside, and
+
+32
+00:03:33.150 --> 00:03:51.340
+Arnav: For once, the whole team can, like, can come together for a meeting, and they can discuss about the goals, in general. Like, for example, if there are 3 goals for marketing, and there are 5 team members… I'm just giving an example, okay? So, all the 5 members can come together, and they can discuss about those 3 goals.
+
+33
+00:03:51.500 --> 00:03:59.109
+Arnav: And they themselves can decide that what goal would they like to work on? Or, like, which is suitable to them, as per their expertise.
+
+34
+00:03:59.270 --> 00:04:17.169
+Arnav: Like, for example, if there are 3 departments in marketing, branding, PR, and lead gen, and there are 3 goals related to it. So, like, who will be working on whom? Instead of HR doing that, the team members can discuss amongst themselves, and they can divide the work
+
+35
+00:04:17.279 --> 00:04:19.350
+Arnav: Like, as per their convenience.
+
+36
+00:04:20.550 --> 00:04:36.499
+Arnav: And the W… like, you can… and all the goals you can either create into one WBS as well, or you can create different WBSs for different, goals as well. That totally depends on the… that totally depends on your comfort and your understanding.
+
+37
+00:04:37.720 --> 00:04:39.180
+Arnav: Is that making sense?
+
+38
+00:04:42.300 --> 00:04:43.100
+Inaas: Yes.
+
+39
+00:04:45.540 --> 00:04:49.560
+Arnav: Other ones. Guys, I want to answer. You guys are the spoks, you need to, like…
+
+40
+00:04:49.890 --> 00:04:55.150
+Arnav: be the representatives of your teams for the essay contest now. So you have to be proactive.
+
+41
+00:04:58.720 --> 00:05:10.360
+Hiba Ansari: For CBITO, I think we… only me and Madhurima are there, and I guess we both are clear with our goals, so I don't think there is any need for this meeting.
+
+42
+00:05:10.550 --> 00:05:17.950
+Arnav: So, CB… so CB, do you think, like, the WBSN approach are in place for the… like, you guys had no issues with the goals, right?
+
+43
+00:05:18.540 --> 00:05:19.290
+Hiba Ansari: No.
+
+44
+00:05:20.260 --> 00:05:23.849
+Arnav: So that made sense. So you have already come up with the WBSN approach.
+
+45
+00:05:24.180 --> 00:05:29.040
+Arnav: Even after coll… so you guys did it collaboratively from the start, because you were only two people, am I right?
+
+46
+00:05:29.040 --> 00:05:30.490
+Hiba Ansari: Yes. Yeah, yeah.
+
+47
+00:05:31.230 --> 00:05:42.190
+Arnav: Okay, then CB, like, okay, CB is sorted, no worries. So the main concern would be about, would be with departments like growth, marketing.
+
+48
+00:05:42.510 --> 00:05:44.640
+Arnav: enablers in tech, I would say.
+
+49
+00:05:47.190 --> 00:05:48.560
+Inaas: Like…
+
+50
+00:05:48.800 --> 00:05:49.709
+Arnav: Yeah, yeah, go ahead.
+
+51
+00:05:49.710 --> 00:05:58.649
+Inaas: Okay, like, I have created the WBSN approach, but sir pointed out in the meeting that the goals are not measurable.
+
+52
+00:05:59.100 --> 00:06:00.000
+Inaas: So…
+
+53
+00:06:00.000 --> 00:06:00.680
+Arnav: Yeah, yeah, yeah.
+
+54
+00:06:00.680 --> 00:06:05.089
+Inaas: He suggested that, we as team members can give proposals.
+
+55
+00:06:05.090 --> 00:06:05.709
+Arnav: Yeah, yeah, yeah.
+
+56
+00:06:05.710 --> 00:06:06.440
+Inaas: on that.
+
+57
+00:06:06.440 --> 00:06:12.669
+Arnav: Coming to it, coming to it. So, when you guys collaboratively, like, discuss about the goals which are there.
+
+58
+00:06:13.240 --> 00:06:17.140
+Arnav: So now that we don't have the OPMs in place, so…
+
+59
+00:06:17.410 --> 00:06:20.519
+Arnav: You, yourself, can decide, like, for example.
+
+60
+00:06:20.700 --> 00:06:24.110
+Arnav: In marketing, if there is a goal regarding lead gen.
+
+61
+00:06:24.250 --> 00:06:32.109
+Arnav: And VPMs have only given, like, what needs to be done and what are the success metrics to achieve that goal. But the quantifiable…
+
+62
+00:06:33.200 --> 00:06:44.159
+Arnav: amount, like, be it 5,000 leads, 6,000 leads, 10,000 leads, how many leads which you have to generate, or which you think would make sense for the contest? That number you have to come up on your own.
+
+63
+00:06:45.020 --> 00:06:47.819
+Arnav: And you need to get that validated from the PM.
+
+64
+00:06:48.630 --> 00:06:55.770
+Arnav: Like, you… for example, if, we require… if we require 1,000 participants for the contest.
+
+65
+00:06:55.920 --> 00:07:12.950
+Arnav: And, for example, we would require 5,000 leads. Just… this is just a random example. Marketing team can do their research and come up with the numbers. So, marketing team has to come up with, like, these are the… these are the number of leads we are expecting, because these are the… because these many are the participants which we think.
+
+66
+00:07:13.390 --> 00:07:20.260
+Arnav: Whatever the ratio be, so that they can come up themselves, and it should make sense. It should have a reasoning to it.
+
+67
+00:07:21.840 --> 00:07:40.170
+Arnav: So, like, for every goal, you can come up with the deliverables yourself. You can come up with how you would quantify that goal yourself. So, for example, talking about the growth team, so there is a goal regarding sponsorship. So, this main sponsorship outcome is 10 lakh rupees.
+
+68
+00:07:40.840 --> 00:07:43.100
+Arnav: Okay, which we have got from the OLs.
+
+69
+00:07:43.350 --> 00:07:57.450
+Arnav: But, like, if growth team thinks that, like, it can be reduced to 8 lakhs, or it can be increased to 12 lakhs, like, that can be discussed within the growth team members, and, like, they can include that in their WPS.
+
+70
+00:07:57.840 --> 00:08:00.100
+Arnav: And it should have a reasoning to it.
+
+71
+00:08:00.550 --> 00:08:02.930
+Arnav: Like, these are the two examples which I've given.
+
+72
+00:08:03.160 --> 00:08:05.859
+Arnav: So, for other teams as well, like, for…
+
+73
+00:08:05.990 --> 00:08:09.190
+Arnav: Tech is not here, like, for enablers and for…
+
+74
+00:08:09.370 --> 00:08:13.330
+Arnav: Marketing, marketing other things also, like branding is the other part.
+
+75
+00:08:13.870 --> 00:08:24.339
+Arnav: So, you guys can come up with your particular, like, deliverables, and you can get them validated from the PMs. You don't even have to wait for their approvals.
+
+76
+00:08:25.310 --> 00:08:28.299
+Arnav: You just inform the PMs that we have done the…
+
+77
+00:08:28.640 --> 00:08:32.809
+Arnav: we have created the WBSN approach as per the new… this.
+
+78
+00:08:33.630 --> 00:08:48.220
+Arnav: And they'll… they'll, like, check with it, and they'll confirm with you. And if there were any… there will be any changes, you can do that, but you don't have to wait for their approval. Until and unless you don't get the approval, we won't start working ahead. That's not the case now.
+
+79
+00:08:50.740 --> 00:08:51.700
+Arnav: Okay?
+
+80
+00:08:52.550 --> 00:08:55.039
+Arnav: So, any doubts, any doubts still now?
+
+81
+00:08:55.330 --> 00:08:58.210
+Arnav: Like, am I making sense to everyone?
+
+82
+00:09:04.720 --> 00:09:05.859
+Purvi: Yes, yes.
+
+83
+00:09:08.560 --> 00:09:09.330
+Arnav: Okay.
+
+84
+00:09:10.330 --> 00:09:14.190
+Arnav: And Asenvartika, how about you guys? Does that make sense for your teams?
+
+85
+00:09:14.190 --> 00:09:16.269
+Inaas: Yes, yes, definitely.
+
+86
+00:09:16.270 --> 00:09:17.150
+Vartika Baranwal: Yeah.
+
+87
+00:09:18.690 --> 00:09:29.429
+Arnav: Okay. So, when is the new timeline I can expect? That we have the WBS in place and the deliverables in… with the deliverables?
+
+88
+00:09:29.550 --> 00:09:34.509
+Arnav: Like, the specific outcomes, so that there is even more clarity amongst all the team members.
+
+89
+00:09:37.020 --> 00:09:40.190
+Inaas: Oh, I think Monday is a holiday, so by Tuesday.
+
+90
+00:09:40.770 --> 00:09:47.810
+Inaas: We can, like… prepare the final WB as an approach, but we can send the proposal before making…
+
+91
+00:09:47.810 --> 00:09:54.750
+Arnav: So Monday UD, I would keep, and Tuesday… by Monday UOD, you guys can submit, and Tuesday, we can see that, and…
+
+92
+00:09:54.750 --> 00:09:55.540
+Inaas: Okay.
+
+93
+00:09:56.430 --> 00:09:57.520
+Arnav: That makes sense.
+
+94
+00:09:57.650 --> 00:09:58.350
+Inaas: Yeah.
+
+95
+00:09:59.270 --> 00:10:00.819
+Arnav: Sushma, what do you have to say?
+
+96
+00:10:05.700 --> 00:10:06.839
+Arnav: What do you think?
+
+97
+00:10:08.850 --> 00:10:09.500
+Sushma: Here.
+
+98
+00:10:10.830 --> 00:10:12.800
+Arnav: Or should we keep it as Tuesday?
+
+99
+00:10:21.060 --> 00:10:22.840
+Sushma: Yes, yes, we can.
+
+100
+00:10:24.060 --> 00:10:25.420
+Arnav: Monday or Tuesday.
+
+101
+00:10:27.360 --> 00:10:29.170
+Sushma: Let's keep Monday moving.
+
+102
+00:10:30.320 --> 00:10:34.210
+Arnav: But then, how are the team members going to connect with each other?
+
+103
+00:10:36.410 --> 00:10:40.189
+Sushma: Well… Gee, even though, like, you know.
+
+104
+00:10:40.370 --> 00:10:44.630
+Sushma: They can… they can connect in their… in their available time if they want, or they can.
+
+105
+00:10:44.630 --> 00:10:50.660
+Arnav: Yeah, like, it is a holiday, but that doesn't mean that you won't be near the system, or you guys won't be working, like…
+
+106
+00:10:50.810 --> 00:10:52.320
+Arnav: Throughout the two days.
+
+107
+00:10:53.480 --> 00:10:54.709
+Arnav: Correct me if I'm wrong.
+
+108
+00:10:54.710 --> 00:10:57.889
+Sushma: It's up to them. They can also do it later.
+
+109
+00:10:58.240 --> 00:11:04.210
+Sushma: Let's keep Monday. Anyhow, it will be extended to Tuesday. I don't think so that Monday will be that.
+
+110
+00:11:04.210 --> 00:11:07.950
+Arnav: Like, guys, like, all the team members have not more than four.
+
+111
+00:11:07.950 --> 00:11:08.330
+Sushma: Maybe…
+
+112
+00:11:08.330 --> 00:11:09.310
+Arnav: Like, all the teams drop.com.
+
+113
+00:11:09.310 --> 00:11:09.630
+Sushma: Do you think?
+
+114
+00:11:09.630 --> 00:11:10.740
+Arnav: Four members, right?
+
+115
+00:11:10.740 --> 00:11:15.600
+Sushma: We mentioned yesterday, today is the EVOD. Many of… Even CBNI.
+
+116
+00:11:15.600 --> 00:11:18.429
+Arnav: 50… more than 50% have… completed, yeah.
+
+117
+00:11:18.430 --> 00:11:23.079
+Sushma: like that if we do, at least they will do it now. Why we should have to drive?
+
+118
+00:11:24.570 --> 00:11:37.960
+Arnav: And guys, like, for the teams who are yet to be done, please take out at least 30 minutes from these two days, and decide upon a few 30 minutes, and get on a call or a meeting, and discuss whatever we have said till now.
+
+119
+00:11:38.940 --> 00:11:48.800
+Arnav: That is good, and it's basically, like, to develop individual ownership amongst all the team members, and to create awareness that what the event is going to be about.
+
+120
+00:11:50.070 --> 00:12:03.180
+Arnav: Okay, because now there are no PMs in place, so there is no one to look after the progress. PMs are only there now for the event-related things and project-related things. They don't… they won't be, like,
+
+121
+00:12:05.050 --> 00:12:09.669
+Arnav: Engaging with the teams on a regular basis to keep a track of their records.
+
+122
+00:12:11.950 --> 00:12:18.210
+Arnav: And even use perks have not… don't have to do it, but you need to keep reminding them that, yeah, this is pending.
+
+123
+00:12:20.450 --> 00:12:21.370
+Arnav: Okay.
+
+124
+00:12:23.300 --> 00:12:27.209
+Arnav: Yeah, so this is the main thing. So I hope, like, it would be done by…
+
+125
+00:12:27.360 --> 00:12:32.880
+Arnav: Monday EOD, and there would no… there would be no further delays happening.
+
+126
+00:12:36.320 --> 00:12:42.789
+Arnav: Especially for the three teams which are present, enablers, Growth, and marketing. CB is already done.
+
+127
+00:12:48.960 --> 00:12:53.789
+Arnav: Is that okay? Do you guys have to… do you guys have anything to add? Or any…
+
+128
+00:12:54.230 --> 00:12:56.560
+Arnav: Issue which you have been facing.
+
+129
+00:12:57.080 --> 00:13:06.519
+Vartika Baranwal: Actually, I was appointed this park right at this moment, so I have no context what is going on. So is there any dog that I can refer to?
+
+130
+00:13:06.860 --> 00:13:09.769
+Sushma: I hope, SJ, also, you attend the meeting.
+
+131
+00:13:09.950 --> 00:13:14.769
+Vartika Baranwal: Yeah, but it was in the middle of the meeting again, so I had no idea what was going on.
+
+132
+00:13:16.610 --> 00:13:17.440
+Sushma: Oh, queer.
+
+133
+00:13:17.440 --> 00:13:25.069
+Arnav: Okay, so do you have the new, like, new communication doc? Communication framework doc?
+
+134
+00:13:25.810 --> 00:13:31.419
+Vartika Baranwal: I think it was shared in any of the groups, but I'm not sure. I did not go through it, I was not tagged.
+
+135
+00:13:32.140 --> 00:13:35.389
+Arnav: Wait, I'll… I'll resend it to you.
+
+136
+00:13:35.390 --> 00:13:35.910
+Vartika Baranwal: Okay.
+
+137
+00:13:35.910 --> 00:13:40.690
+Arnav: And you can go through it, and you can let us… let me or Sushma know if you have any doubts.
+
+138
+00:13:40.980 --> 00:13:42.679
+Vartika Baranwal: Okay, okay, sure, thanks.
+
+139
+00:13:42.970 --> 00:13:49.430
+Arnav: Yeah, and apart from that, do you have any other doubt, like, about the process which we… which I talked about in the meeting right now?
+
+140
+00:13:49.600 --> 00:13:51.280
+Vartika Baranwal: No, no, that is clear.
+
+141
+00:13:52.610 --> 00:14:03.100
+Arnav: That is clear, right? Okay. So guys, I expect that, like, the work would be done… the WBSN approach would be done by Monday UD, because that's the… that's the foundational blocks for…
+
+142
+00:14:03.630 --> 00:14:06.429
+Arnav: Us to, like, work towards the event.
+
+143
+00:14:06.800 --> 00:14:10.309
+Arnav: And we have less than… Like, we have…
+
+144
+00:14:10.740 --> 00:14:13.260
+Arnav: Only a month for the event to go.
+
+145
+00:14:13.470 --> 00:14:16.379
+Arnav: It's already Jan, and we are going to have it in March.
+
+146
+00:14:19.620 --> 00:14:25.689
+Arnav: to, like… 40 days you can keep. So we need to get started.
+
+147
+00:14:28.440 --> 00:14:35.159
+Arnav: And, like, I want you to use Fox to be, like, active and super active, because, like.
+
+148
+00:14:35.390 --> 00:14:45.239
+Arnav: you were the ones who were appointed by the OLs, so they must have seen something that, yeah, you guys are proactive, so you need to continue doing… showing that momentum, and, like.
+
+149
+00:14:45.440 --> 00:14:49.499
+Arnav: You need to… Like, also help your team members.
+
+150
+00:14:51.500 --> 00:14:53.119
+Arnav: And also motivate them.
+
+151
+00:14:58.150 --> 00:15:01.720
+Arnav: So I hope, like, this is the change world which we are…
+
+152
+00:15:02.560 --> 00:15:05.749
+Arnav: Thinking of, and it goes in the right direction.
+
+153
+00:15:07.320 --> 00:15:08.340
+Arnav: You guys can contact.
+
+154
+00:15:08.340 --> 00:15:08.859
+Purvi: I didn't know.
+
+155
+00:15:08.860 --> 00:15:10.780
+Arnav: George Shushma, yeah, go ahead.
+
+156
+00:15:10.780 --> 00:15:15.230
+Purvi: For Charu, what should I ask her to put in the WBS model?
+
+157
+00:15:16.390 --> 00:15:22.949
+Arnav: For Charu, what we can do is, like, you… we don't ask her to do anything, because even so her has said that, like.
+
+158
+00:15:23.130 --> 00:15:35.729
+Arnav: not to include her, no, in the essay contest for now. She can be a part of it in the future, as per the days pass by, but for now, she is only, responsible for WBS on.
+
+159
+00:15:36.740 --> 00:15:45.960
+Arnav: she's only responsible for, grants-related stuff from the government. So, if specifically required, you can ask her to… or else…
+
+160
+00:15:48.790 --> 00:15:56.799
+Arnav: Sushma, should we, like, change the… because this is related to essay contest, so should we add a WBS which is not related to the essay contest?
+
+161
+00:15:58.520 --> 00:16:01.140
+Sushma: No, we are working per essay contest, na?
+
+162
+00:16:03.000 --> 00:16:05.289
+Arnav: But that goal is not related to SA contest.
+
+163
+00:16:05.290 --> 00:16:08.309
+Sushma: Which one? Which goal is not relevant to the essay contest?
+
+164
+00:16:09.120 --> 00:16:11.520
+Arnav: The grants, the government grants.
+
+165
+00:16:13.030 --> 00:16:15.310
+Sushma: The growth goals, you're asking?
+
+166
+00:16:15.310 --> 00:16:20.410
+Arnav: Yeah, yeah. Like, that was given to her, like, 3 days… 2 days ago.
+
+167
+00:16:21.170 --> 00:16:23.339
+Sushma: Charu, you are telling, right?
+
+168
+00:16:24.670 --> 00:16:32.720
+Sushma: So, now, I think at the time you created that, but when you know about the context, so you can also, you know.
+
+169
+00:16:33.180 --> 00:16:34.789
+Sushma: Reframe that now.
+
+170
+00:16:36.410 --> 00:16:38.539
+Sushma: Which is relevant to the essay contest.
+
+171
+00:16:39.630 --> 00:16:45.829
+Arnav: Purvi, as you're the spark, like, I'm asking you, also, like, does that make any sense to the essay contest?
+
+172
+00:16:47.620 --> 00:16:52.490
+Purvi: No, no, I think… It shouldn't be either.
+
+173
+00:16:53.320 --> 00:16:54.080
+Purvi: Lord God.
+
+174
+00:16:54.530 --> 00:17:02.300
+Sushma: So instead of what should be added, you can, because you're the subject matter expert and you're this book, you can also suggest anything, so that, you know.
+
+175
+00:17:02.540 --> 00:17:04.339
+Sushma: We can think in that way.
+
+176
+00:17:04.399 --> 00:17:09.159
+Purvi: Like, is it necessary that something should be there, or nothing is not…
+
+177
+00:17:12.010 --> 00:17:18.230
+Sushma: Not like that. See, you people are having the daily meetings with, growth oil.
+
+178
+00:17:18.740 --> 00:17:26.849
+Sushma: Of course, you will be having more context, how can we see in the essay contest, and what can be achieved in the essay contest.
+
+179
+00:17:30.990 --> 00:17:33.250
+Sushma: Do we miss anything?
+
+180
+00:17:33.530 --> 00:17:36.719
+Sushma: If we miss anything, instead of that goal, we can add.
+
+181
+00:17:37.530 --> 00:17:38.610
+Sushma: Okay.
+
+182
+00:17:38.610 --> 00:17:39.799
+Arnav: Okay, so Poor will be, like…
+
+183
+00:17:39.800 --> 00:17:40.600
+Sushma: Thank you.
+
+184
+00:17:41.310 --> 00:17:50.840
+Sushma: That was the additional thing, which is, you know, will… is assigned. We can remove it if it is, you know, useless or meaningless additional thing.
+
+185
+00:17:51.200 --> 00:17:56.760
+Sushma: I was asking if we missed anything. So, if we missed anything, instead of that, we can add.
+
+186
+00:18:01.990 --> 00:18:08.100
+Arnav: So, Purvi, what we can do for now is we can, like, ask her to not prepare any WBS for now.
+
+187
+00:18:08.250 --> 00:18:14.559
+Arnav: Or if she wants to prepare a WBS, she can prepare a WBS and keep with herself for a clarity.
+
+188
+00:18:15.170 --> 00:18:25.480
+Arnav: And in the future, like, if we get any lead for the grants, or, like, if it's getting connected to the SA contest, we can include that in our
+
+189
+00:18:26.290 --> 00:18:27.890
+Arnav: WB as an approach.
+
+190
+00:18:29.120 --> 00:18:29.870
+Arnav: Okay.
+
+191
+00:18:29.950 --> 00:18:30.790
+Purvi: Yeah, yeah.
+
+192
+00:18:32.020 --> 00:18:33.470
+Arnav: Anything else, guys?
+
+193
+00:18:39.360 --> 00:18:41.379
+Hiba Ansari: No, nothing from my end.
+
+194
+00:18:42.420 --> 00:18:43.250
+Arnav: Okay.
+
+195
+00:18:44.210 --> 00:18:46.659
+Arnav: Enablers, Vertica?
+
+196
+00:18:47.900 --> 00:18:49.420
+Vartika Baranwal: No, no, nothing.
+
+197
+00:18:50.720 --> 00:18:51.620
+Arnav: Okay, okay.
+
+198
+00:18:56.500 --> 00:19:01.979
+Arnav: Okay then. Guys, I hope that it will be done by Monday, Yodi, and please be proactive.
+
+199
+00:19:03.080 --> 00:19:03.990
+Arnav: Okay.
+
+200
+00:19:05.740 --> 00:19:06.560
+Arnav: Yeah.
+
+201
+00:19:08.640 --> 00:19:14.419
+Arnav: And if you have any doubts in the… like, while doing anything, you can reach out to me or Sushma.
+
+202
+00:19:16.380 --> 00:19:18.899
+Arnav: Okay. Thank you, everyone. Thanks for joining.
+
+203
+00:19:20.540 --> 00:19:21.529
+Hiba Ansari: Thank you.
+
+204
+00:19:23.600 --> 00:19:24.370
+Inaas: You…
+

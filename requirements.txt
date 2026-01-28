@@ -1,0 +1,12 @@
+requests
+google-api-python-client
+google-auth-oauthlib
+python-dotenv
+tinydb
+yt-dlp
+gspread
+oauth2client
+fastapi
+uvicorn
+python-multipart
+websockets

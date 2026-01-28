@@ -1,0 +1,65 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VONG Master Documentation</title>
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body { font-family: 'Inter', sans-serif; max-width: 900px; margin: 0 auto; padding: 40px; color: #1a1a1a; line-height: 1.6; }
+        h1, h2, h3 { color: #111; margin-top: 1.5em; }
+        h1 { font-size: 2.5em; border-bottom: 2px solid #eaeaea; padding-bottom: 10px; }
+        h2 { font-size: 1.8em; border-bottom: 1px solid #eaeaea; padding-bottom: 8px; }
+        code { background: #f5f5f5; padding: 2px 6px; border-radius: 4px; font-family: 'Monaco', 'Consolas', monospace; font-size: 0.9em; }
+        pre { background: #f5f5f5; padding: 15px; border-radius: 8px; overflow-x: auto; }
+        pre code { background: none; padding: 0; }
+        blockquote { border-left: 4px solid #0070f3; margin: 0; padding-left: 20px; background: #f0f7ff; padding: 10px 20px; }
+        table { border-collapse: collapse; width: 100%; margin: 20px 0; }
+        th, td { border: 1px solid #ddd; padding: 12px; text-align: left; }
+        th { background-color: #f9f9f9; font-weight: 600; }
+        .mermaid { text-align: center; margin: 30px 0; }
+        .print-btn { position: fixed; top: 20px; right: 20px; padding: 10px 20px; background: #0070f3; color: white; text-decoration: none; border-radius: 5px; font-weight: 600; cursor: pointer; border: none; }
+        @media print { .print-btn { display: none; } body { padding: 0; } }
+    </style>
+</head>
+<body>
+    <button class="print-btn" onclick="window.print()">Save as PDF</button>
+    <div id="content"></div>
+    
+    <!-- Hidden element to store Base64 markdown -->
+    <div id="markdown-source" style="display:none;">IyBZVFogQXV0b21hdGlvbiAtIE1hc3RlciBEb2N1bWVudGF0aW9uCgpbVE9DXQoKIyBQcm9kdWN0IFJlcXVpcmVtZW50cyBEb2N1bWVudCAoUFJEKQoKIyMgMS4gT3ZlcnZpZXcKKipQcm9kdWN0IE5hbWU6KiogWVRaIChZb3VUdWJlLXRvLVpvb20pIEF1dG9tYXRpb24gU3lzdGVtICAKKipWZXJzaW9uOioqIDEuMCAgCioqRGF0ZToqKiBKYW51YXJ5IDExLCAyMDI2ICAKKipTdGF0dXM6KiogSW4gUHJvZHVjdGlvbgoKIyMjIFB1cnBvc2UKQXV0b21hdGUgdGhlIGNvbXBsZXRlIHdvcmtmbG93IG9mIFpvb20gY2xvdWQgcmVjb3JkaW5nIG1hbmFnZW1lbnQgYnkgZG93bmxvYWRpbmcgcmVjb3JkaW5ncywgdXBsb2FkaW5nIHRvIFlvdVR1YmUgZm9yIGNvbXByZXNzaW9uLCBhbmQgYmFja2luZyB1cCB0byBHb29nbGUgRHJpdmUgd2l0aCBvcmdhbml6ZWQgZm9sZGVyIHN0cnVjdHVyZXMuCgojIyAyLiBQcm9ibGVtIFN0YXRlbWVudApPcmdhbml6YXRpb25zIHVzaW5nIFpvb20gZ2VuZXJhdGUgbGFyZ2Ugdm9sdW1lcyBvZiBjbG91ZCByZWNvcmRpbmdzIHRoYXQgbmVlZCB0byBiZToKLSBEb3dubG9hZGVkIGJlZm9yZSBab29tJ3MgYXV0b21hdGljIGRlbGV0aW9uICh0eXBpY2FsbHkgMzAtOTAgZGF5cykKLSBDb21wcmVzc2VkIHRvIHNhdmUgc3RvcmFnZSBjb3N0cwotIEJhY2tlZCB1cCB0byBsb25nLXRlcm0gc3RvcmFnZSAoR29vZ2xlIERyaXZlKQotIE9yZ2FuaXplZCBpbiBhIHNlYXJjaGFibGUgZm9sZGVyIGhpZXJhcmNoeQoKIyMgMy4gR29hbHMgJiBPYmplY3RpdmVzCi0gKipCdXNpbmVzcyBHb2FsczoqKiBFbGltaW5hdGUgbWFudWFsIHJlY29yZGluZyBtYW5hZ2VtZW50LCByZWR1Y2UgY29zdHMsIHByZXZlbnQgZGF0YSBsb3NzLgotICoqVXNlciBHb2FsczoqKiBTZXQtYW5kLWZvcmdldCBhdXRvbWF0aW9uLCBvcmdhbml6ZWQgYXJjaGl2ZSwgcmVsaWFibGUgYmFja3VwLgoKIyMgNC4gVGVjaG5pY2FsIEFyY2hpdGVjdHVyZQoKIyMjIFN5c3RlbSBXb3JrZmxvdwpgYGBtZXJtYWlkCmdyYXBoIFRECiAgICBBW1BvbGwgWm9vbSBBUEldIC0tPnxOZXcgUmVjb3JkaW5nfCBCW0Rvd25sb2FkIE1QNCAmIFRyYW5zY3JpcHRdCiAgICBCIC0tPiBDW1VwbG9hZCB0byBZb3VUdWJlIChVbmxpc3RlZCldCiAgICBDIC0tPiBEW1dhaXQgZm9yIFByb2Nlc3NpbmddCiAgICBEIC0tPiBFW0Rvd25sb2FkIENvbXByZXNzZWQgTVA0XQogICAgRSAtLT4gRltVcGxvYWQgdG8gR29vZ2xlIERyaXZlXQogICAgRiAtLT4gR1tDbGVhbnVwIExvY2FsIEZpbGVzXQogICAgRyAtLT4gSFtVcGRhdGUgU3RhdGUgREJdCmBgYAoKIyMjIFRlY2hub2xvZ3kgU3RhY2sKLSAqKkxhbmd1YWdlOioqIFB5dGhvbiAzLngKLSAqKkNvbnRhaW5lcml6YXRpb246KiogRG9ja2VyCi0gKipBUElzOioqIFpvb20sIFlvdVR1YmUgRGF0YSBBUEkgdjMsIEdvb2dsZSBEcml2ZSB2MwoKIyBEZXBsb3ltZW50IEd1aWRlIChHb29nbGUgQ2xvdWQpCgojIyBQcmVyZXF1aXNpdGVzCjEuICAqKkdvb2dsZSBDbG91ZCBBY2NvdW50Kiogd2l0aCBiaWxsaW5nIGVuYWJsZWQuCjIuICAqKlByb2plY3QgRmlsZXMqKiByZWFkeSBsb2NhbGx5LgozLiAgKipTZWNyZXRzKiogZm9sZGVyIHBvcHVsYXRlZC4KCiMjIFN0ZXAgMTogQ3JlYXRlIFZNCi0gKipNYWNoaW5lIFR5cGU6KiogYGUyLXN0YW5kYXJkLTJgIChSZWNvbW1lbmRlZCkKLSAqKk9TOioqIFVidW50dSAyMi4wNCBMVFMKLSAqKkRpc2s6KiogMzAgR0IgU3RhbmRhcmQKCiMjIFN0ZXAgMjogSW5zdGFsbCBEb2NrZXIKYGBgYmFzaApzdWRvIGFwdC1nZXQgdXBkYXRlICYmIHN1ZG8gYXB0LWdldCBpbnN0YWxsIC15IGRvY2tlci5pbyBkb2NrZXItY29tcG9zZQpzdWRvIHVzZXJtb2QgLWFHIGRvY2tlciAkVVNFUgpgYGAKKihSZWxvZ2luIHJlcXVpcmVkKSoKCiMjIFN0ZXAgMzogRGVwbG95bWVudAoxLiAgVXBsb2FkIGZpbGVzIChzcmMsIGNvbmZpZywgc2VjcmV0cywgRG9ja2VyZmlsZSwgZG9ja2VyLWNvbXBvc2UueW1sKS4KMi4gIFJ1bjoKICAgIGBgYGJhc2gKICAgIGRvY2tlci1jb21wb3NlIHVwIC1kIC0tYnVpbGQKICAgIGBgYAoKIyMgU3RlcCA0OiBWZXJpZmljYXRpb24KY2hlY2sgbG9nczoKYGBgYmFzaApkb2NrZXItY29tcG9zZSBsb2dzIC1mCmBgYAoKLS0tCipHZW5lcmF0ZWQgYnkgWVRaIEF1dG9tYXRpb24gQXNzaXN0YW50Kgo=</div>
+
+    <script type="module">
+        import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.esm.min.mjs';
+        
+        mermaid.initialize({ startOnLoad: false, theme: 'neutral' });
+
+        // Decode Base64 Content
+        const b64 = document.getElementById('markdown-source').textContent;
+        const rawMarkdown = new TextDecoder().decode(Uint8Array.from(atob(b64), c => c.charCodeAt(0)));
+
+        // Configure Marked to identify mermaid blocks
+        const renderer = new marked.Renderer();
+        const oldCode = renderer.code;
+        renderer.code = function(code, language) {
+            if (language === 'mermaid') {
+                return '<div class="mermaid">' + code + '</div>';
+            }
+            return oldCode.call(this, code, language);
+        };
+
+        // Render Markdown to HTML
+        document.getElementById('content').innerHTML = marked.parse(rawMarkdown, { renderer: renderer });
+        
+        // Render Mermaid Diagrams
+        setTimeout(async () => {
+            await mermaid.run({
+                querySelector: '.mermaid'
+            });
+        }, 100);
+    </script>
+</body>
+</html>

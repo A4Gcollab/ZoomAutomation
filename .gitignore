@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+secrets/
+*.log
+.DS_Store
+frontend/node_modules/
+frontend/dist/
+config/playlists.json
+deploy.zip

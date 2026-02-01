@@ -75,6 +75,12 @@ class Database:
         cur = self.conn.cursor()
         cur.execute("SELECT * FROM recordings WHERE status = 'PENDING' ORDER BY start_time DESC")
         return [dict(row) for row in cur.fetchall()]
+    
+    def get_approved(self):
+        """Get recordings that have been approved and are ready for processing."""
+        cur = self.conn.cursor()
+        cur.execute("SELECT * FROM recordings WHERE status = 'APPROVED' ORDER BY start_time DESC")
+        return [dict(row) for row in cur.fetchall()]
 
     def get_history(self, limit=50):
         cur = self.conn.cursor()

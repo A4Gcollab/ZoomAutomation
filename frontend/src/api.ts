@@ -36,4 +36,11 @@ export const UserAPI = {
     approve: async (id: string, data: { team: string, playlist: string }) =>
         (await api.post(`/approve/${id}`, data)).data,
     sync: async () => (await api.post('/sync')).data,
+    getSheetsUrl: async () => (await api.get('/sheets-url')).data,
+
+    // Service Management
+    getServiceHealth: async () => (await api.get('/service/health')).data,
+    startService: async () => (await api.post('/service/start')).data,
+    stopService: async () => (await api.post('/service/stop')).data,
+    restartService: async () => (await api.post('/service/restart')).data,
 };

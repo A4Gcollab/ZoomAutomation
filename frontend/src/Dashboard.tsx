@@ -4,10 +4,12 @@ import { UserAPI } from './api';
 import {
     CheckCircle, Clock, RefreshCcw, Layers, LogOut,
     Activity, ChevronDown, PenLine,
-    LayoutGrid, List, Plus
+    LayoutGrid, List, Plus, ExternalLink
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import clsx from 'clsx';
+import { ServiceStatus } from './ServiceStatus';
+import { notify } from './notifications';
 
 export default function Dashboard() {
     const navigate = useNavigate();
@@ -19,6 +21,7 @@ export default function Dashboard() {
     const [activeTab, setActiveTab] = useState<'queue' | 'history'>('queue');
     const logEndRef = useRef<HTMLDivElement>(null);
     const [user] = useState(() => JSON.parse(localStorage.getItem('user_data') || '{}'));
+    const isAdmin = user.role === 'admin';
 
     // Edit State
     const [editingRow, setEditingRow] = useState<string | null>(null);
@@ -28,20 +31,39 @@ export default function Dashboard() {
 
     const refreshData = async () => {
         try {
-            const [s, q, h, l, o] = await Promise.all([
+            const promises = [
                 UserAPI.getStats(),
                 UserAPI.getQueue(),
                 UserAPI.getHistory(),
-                UserAPI.getLogs(),
                 UserAPI.getOptions()
-            ]);
-            setStats(s);
-            setQueue(q);
-            setHistory(h);
-            setLogs(l);
-            setOptions(o);
+            ];
+
+            // Only fetch logs if user is admin
+            if (isAdmin) {
+                promises.push(UserAPI.getLogs());
+            }
+
+            const results = await Promise.all(promises);
+            setStats(results[0]);
+            setQueue(results[1]);
+            setHistory(results[2]);
+            setOptions(results[3]);
+            if (isAdmin && results[4]) {
+                setLogs(results[4].logs || []);  // Extract logs array from response
+            }
+        } catch (error: any) {
+            const msg = error.response?.data?.detail || error.message || 'Unknown error';
+            notify.error(`Failed to refresh data: ${msg}`);
+            console.error('Refresh error:', error);
+        }
+    };
+
+    const openGoogleSheets = async () => {
+        try {
+            const data = await UserAPI.getSheetsUrl();
+            window.open(data.url, '_blank');
         } catch (e) {
-            console.error("Fetch Error");
+            alert('Failed to open Google Sheets');
         }
     };
 
@@ -57,17 +79,18 @@ export default function Dashboard() {
 
     const handleApprove = async (id: string) => {
         if (!editForm.team || !editForm.playlist) {
-            alert("Please set Team and Playlist first");
+            notify.warning('Please set Team and Playlist first');
             return;
         }
         setLoading(true);
         try {
             await UserAPI.approve(id, editForm);
+            notify.success('Recording approved successfully!');
             setEditingRow(null);
             await refreshData();
             setInputMode({ team: false, playlist: false });
-        } catch (e) {
-            alert("Approval Failed");
+        } catch (e: any) {
+            notify.apiError('Approval', e.response?.data?.detail || e.message);
         } finally {
             setLoading(false);
         }
@@ -102,6 +125,13 @@ export default function Dashboard() {
                 </div>
 
                 <div className="flex items-center gap-2">
+                    {isAdmin && <ServiceStatus />}
+                    {isAdmin && (
+                        <button onClick={openGoogleSheets} className="btn-ghost flex items-center gap-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50">
+                            <ExternalLink className="w-4 h-4" />
+                            Sheets
+                        </button>
+                    )}
                     <button onClick={() => UserAPI.sync()} className="btn-ghost flex items-center gap-2 text-sm font-medium">
                         <RefreshCcw className="w-4 h-4" />
                         Sync
@@ -138,7 +168,7 @@ export default function Dashboard() {
                 <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 items-start">
                     {/* Main List - Wider (3/4) */}
                     <div className="xl:col-span-3 zen-card overflow-hidden min-h-[600px] flex flex-col shadow-sm">
-                        <div className="flex border-b border-slate-100 bg-slate-50/50">
+                        <div className="flex border-b border-slate-200">
                             <button
                                 onClick={() => setActiveTab('queue')}
                                 className={clsx("flex-1 py-4 text-sm font-semibold text-center hover:bg-slate-50 transition-colors border-b-2", activeTab === 'queue' ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500")}
@@ -147,9 +177,9 @@ export default function Dashboard() {
                             </button>
                             <button
                                 onClick={() => setActiveTab('history')}
-                                className={clsx("flex-1 py-4 text-sm font-semibold text-center hover:bg-slate-50 transition-colors border-b-2", activeTab === 'history' ? "border-emerald-500 text-emerald-600" : "border-transparent text-slate-500")}
+                                className={clsx("flex-1 py-4 text-sm font-semibold text-center hover:bg-slate-50 transition-colors border-b-2", activeTab === 'history' ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500")}
                             >
-                                History
+                                Upload History ({history.length})
                             </button>
                         </div>
 
@@ -301,15 +331,25 @@ export default function Dashboard() {
                             </h2>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
-                            {logs.length === 0 && <div className="text-slate-600 text-center mt-10">Use the system...</div>}
-                            {logs.map(log => (
-                                <div key={log.id} className="break-words">
-                                    <span className="text-slate-500 mr-2">[{log.timestamp?.substring(11, 19)}]</span>
-                                    <span className={clsx("font-bold mr-2", log.level === 'ERROR' ? "text-red-400" : "text-blue-400")}>{log.level}</span>
-                                    <span className="text-slate-300">{log.message}</span>
+                            {!isAdmin ? (
+                                <div className="flex flex-col items-center justify-center h-full text-slate-600 text-center px-4">
+                                    <Activity className="w-12 h-12 mb-4 opacity-20" />
+                                    <p className="text-sm">Admin access required</p>
+                                    <p className="text-xs mt-2 opacity-60">System logs are only visible to administrators</p>
                                 </div>
-                            ))}
-                            <div ref={logEndRef}></div>
+                            ) : (
+                                <>
+                                    {logs.length === 0 && <div className="text-slate-600 text-center mt-10">Use the system...</div>}
+                                    {logs.map(log => (
+                                        <div key={log.id} className="break-words">
+                                            <span className="text-slate-500 mr-2">[{log.timestamp?.substring(11, 19)}]</span>
+                                            <span className={clsx("font-bold mr-2", log.level === 'ERROR' ? "text-red-400" : "text-blue-400")}>{log.level}</span>
+                                            <span className="text-slate-300">{log.message}</span>
+                                        </div>
+                                    ))}
+                                    <div ref={logEndRef}></div>
+                                </>
+                            )}
                         </div>
                     </div>
                 </div>

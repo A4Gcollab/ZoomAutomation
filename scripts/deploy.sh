@@ -9,7 +9,12 @@ echo "🚀 Starting Deployment..."
 
 # 1. Update System
 echo "📦 Updating System Packages..."
-apt-get update && apt-get install -y python3-pip python3-venv nginx certbot python3-certbot-nginx
+apt-get update && apt-get install -y python3-pip python3-venv nginx certbot python3-certbot-nginx curl
+
+# Install Node.js 20
+echo "📦 Installing Node.js..."
+curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+apt-get install -y nodejs
 
 # 2. Setup Directories
 APP_DIR="/opt/omysha-automation"
@@ -23,6 +28,15 @@ if [ ! -d "$APP_DIR/venv" ]; then
 fi
 source $APP_DIR/venv/bin/activate
 pip install -r $APP_DIR/requirements.txt
+
+# 3.5 Build Frontend
+echo "⚛️  Building Frontend..."
+cd $APP_DIR/frontend
+echo "   Installing frontend dependencies..."
+npm install
+echo "   Building React app..."
+npm run build
+cd $APP_DIR
 
 # 4. Backend Service
 echo "⚙️  Configuring Backend Service..."

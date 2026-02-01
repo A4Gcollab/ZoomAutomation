@@ -1,98 +1,98 @@
-
-import { useState } from 'react';
-import { GoogleLogin } from '@react-oauth/google';
-import { useNavigate } from 'react-router-dom';
+import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { UserAPI } from './api';
-import { FolderGit2, ShieldCheck, Zap } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Activity, Zap, Shield, Clock } from 'lucide-react';
 
 export default function Login() {
     const navigate = useNavigate();
-    const [error, setError] = useState('');
 
-    const handleLoginSuccess = async (token: string, isDemo = false) => {
+    const handleSuccess = async (credentialResponse: CredentialResponse) => {
         try {
-            if (isDemo) {
-                // Demo Logic
-                localStorage.setItem('vong_token', token);
-                localStorage.setItem('user_data', JSON.stringify({ name: "Demo Admin", email: "demo@omysha.com", picture: "" }));
-                navigate('/');
+            const token = credentialResponse.credential;
+            if (!token) {
+                alert('No credential received');
                 return;
             }
 
-            const res = await UserAPI.login(token);
-            localStorage.setItem('vong_token', token);
-            localStorage.setItem('user_data', JSON.stringify(res.user));
-            navigate('/');
-        } catch (err) {
-            console.error(err);
-            setError("Access Denied: You do not have permission.");
+            const data = await UserAPI.login(token);
+            // Store the token (use returned one or original)
+            localStorage.setItem('vong_token', data.token || token);
+            localStorage.setItem('user_data', JSON.stringify(data.user));
+            navigate('/dashboard');
+        } catch (error: any) {
+            alert(error.response?.data?.detail || 'Login failed');
         }
     };
 
     return (
-        <div className="flex min-h-screen flex-col items-center justify-center p-4">
-            {/* Background Decor */}
-            <div className="absolute top-0 left-0 w-full h-full overflow-hidden -z-10 pointer-events-none">
-                <div className="absolute top-[-10%] left-[-10%] w-[500px] h-[500px] bg-indigo-600/20 rounded-full blur-[100px]"></div>
-                <div className="absolute bottom-[-10%] right-[-10%] w-[500px] h-[500px] bg-cyan-600/10 rounded-full blur-[100px]"></div>
+        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900 flex items-center justify-center p-4">
+            {/* Background Pattern */}
+            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')] opacity-40"></div>
+
+            <div className="relative w-full max-w-md">
+                {/* Main Card */}
+                <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+                    {/* Header */}
+                    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-8 text-center">
+                        <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-2xl mb-4 backdrop-blur-sm">
+                            <Activity className="w-8 h-8 text-white" />
+                        </div>
+                        <h1 className="text-3xl font-bold text-white mb-2">YTZ Automation</h1>
+                        <p className="text-indigo-100 text-sm">Streamline your workflow automation</p>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-8">
+                        {/* Features */}
+                        <div className="space-y-3 mb-8">
+                            <div className="flex items-center gap-3 text-white/90">
+                                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
+                                    <Zap className="w-4 h-4 text-indigo-400" />
+                                </div>
+                                <span className="text-sm">Automated recording processing</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-white/90">
+                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
+                                    <Shield className="w-4 h-4 text-purple-400" />
+                                </div>
+                                <span className="text-sm">Secure Google authentication</span>
+                            </div>
+                            <div className="flex items-center gap-3 text-white/90">
+                                <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
+                                    <Clock className="w-4 h-4 text-blue-400" />
+                                </div>
+                                <span className="text-sm">Real-time status monitoring</span>
+                            </div>
+                        </div>
+
+                        {/* Login Button */}
+                        <div className="bg-white rounded-xl p-6 shadow-lg">
+                            <p className="text-center text-sm text-gray-600 mb-4 font-medium">
+                                Sign in to continue
+                            </p>
+                            <div className="flex flex-col gap-3 justify-center">
+                                <GoogleLogin
+                                    onSuccess={handleSuccess}
+                                    onError={() => alert('Login Failed')}
+                                    useOneTap={false}
+                                    theme="filled_blue"
+                                    size="large"
+                                    text="signin_with"
+                                    shape="rectangular"
+                                />
+                            </div>
+                        </div>
+
+                        {/* Footer Note */}
+                        <p className="text-center text-xs text-white/60 mt-6">
+                            Authorized users only • Secure access
+                        </p>
+                    </div>
+                </div>
+
+                {/* Bottom Glow Effect */}
+                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-3/4 h-8 bg-indigo-500/30 blur-2xl rounded-full"></div>
             </div>
-
-            <div className="glass-card w-full max-w-md flex flex-col items-center border-t border-white/20">
-
-                {/* Logo */}
-                <div className="mb-8 flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-cyan-500 shadow-xl shadow-indigo-500/30">
-                    <FolderGit2 className="h-10 w-10 text-white" />
-                </div>
-
-                <h1 className="text-3xl font-bold text-center mb-2">
-                    <span className="text-white">Zoom</span> <span className="text-gradient">Automation</span>
-                </h1>
-                <p className="text-sm text-gray-400 mb-8 text-center max-w-xs">
-                    Secure Automation Dashboard for Zoom, YouTube, and Drive Management.
-                </p>
-
-                {/* Auth Options */}
-                <div className="flex flex-col gap-4 w-full">
-                    <div className="flex justify-center w-full">
-                        <GoogleLogin
-                            onSuccess={(res) => res.credential && handleLoginSuccess(res.credential)}
-                            onError={() => setError("Google Login Failed")}
-                            theme="filled_black"
-                            shape="pill"
-                            width="100%"
-                        />
-                    </div>
-
-                    <div className="relative flex items-center py-2">
-                        <div className="flex-grow border-t border-white/10"></div>
-                        <span className="flex-shrink mx-4 text-xs text-gray-600 uppercase">Or Verified Testing</span>
-                        <div className="flex-grow border-t border-white/10"></div>
-                    </div>
-
-                    <button
-                        onClick={() => handleLoginSuccess("DEMO_TOKEN_VONG_2026", true)}
-                        className="group flex items-center justify-center w-full gap-2 px-4 py-3 rounded-full border border-white/10 hover:bg-white/5 transition-all text-sm font-medium text-gray-300 hover:text-white"
-                    >
-                        <Zap className="w-4 h-4 text-yellow-400 group-hover:scale-110 transition-transform" />
-                        <span>Enter Demo Mode</span>
-                    </button>
-                </div>
-
-                <div className="mt-8 flex items-center gap-2 text-xs text-green-500/80 bg-green-500/10 px-3 py-1 rounded-full">
-                    <ShieldCheck className="w-3 h-3" />
-                    <span>AES-256 Encrypted Connection</span>
-                </div>
-
-                {error && (
-                    <div className="mt-6 w-full rounded-lg bg-red-500/10 border border-red-500/20 p-3 text-center text-xs text-red-400 animate-pulse">
-                        {error}
-                    </div>
-                )}
-            </div>
-
-            <p className="fixed bottom-6 text-xs text-gray-600">
-                v2.0.0 (Enterprise Build) • Omysha TechProducts
-            </p>
         </div>
     );
 }

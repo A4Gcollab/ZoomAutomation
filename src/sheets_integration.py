@@ -10,20 +10,32 @@ logger = logging.getLogger("SheetManager")
 class SheetManager:
     def __init__(self, credentials, sheet_id=None):
         self.sheet_id = sheet_id or config.GOOGLE_SHEET_ID
+        # FORCE RELOAD V3
         self.client = gspread.authorize(credentials)
         try:
             self.doc = self.client.open_by_key(self.sheet_id)
             logger.info(f"Connected to Google Sheet: {self.doc.title}")
             
-            # Cache Tabs
-            self.settings_tab = getattr(self.doc.worksheet(SheetSchemaV2.TAB_SETTINGS), 'title', None) and self.doc.worksheet(SheetSchemaV2.TAB_SETTINGS)
-            self.logs_tab = getattr(self.doc.worksheet(SheetSchemaV2.TAB_LOGS), 'title', None) and self.doc.worksheet(SheetSchemaV2.TAB_LOGS)
-            self.dashboard_tab = getattr(self.doc.worksheet(SheetSchemaV2.TAB_DASHBOARD), 'title', None) and self.doc.worksheet(SheetSchemaV2.TAB_DASHBOARD)
-            self.main_tab = getattr(self.doc.worksheet(SheetSchemaV2.TAB_MAIN), 'title', None) and self.doc.worksheet(SheetSchemaV2.TAB_MAIN)
+            # Cache Tabs Safely
+            self.settings_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_SETTINGS)
+            self.logs_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_LOGS)
+            self.dashboard_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_DASHBOARD)
+            self.main_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_MAIN)
             
         except Exception as e:
             logger.error(f"Failed to connect to Google Sheet: {e}")
             raise
+
+    def _safe_get_worksheet(self, title):
+        """Safely get a worksheet by title, returning None if not found."""
+        try:
+            return self.doc.worksheet(title)
+        except gspread.exceptions.WorksheetNotFound:
+            logger.warning(f"Worksheet '{title}' not found. Some features may be disabled.")
+            return None
+        except Exception as e:
+            logger.error(f"Error fetching worksheet '{title}': {e}")
+            return None
 
     def check_command_state(self):
         """
@@ -34,6 +46,9 @@ class SheetManager:
             # Assuming A1 is 'COMMAND' and B1 is the value
             # Actually schema says A1:B2, where A1=Key, B1=Value might be safer to lookup
             # Let's read the whole A:B range
+            if not self.settings_tab:
+                return SheetSchemaV2.CMD_IDLE
+            
             records = self.settings_tab.get_all_values()
             for row in records:
                 if row[0] == SheetSchemaV2.KEY_COMMAND:
@@ -47,6 +62,7 @@ class SheetManager:
         """Reset the command state (e.g. back to IDLE after running)."""
         try:
             # We need to find the cell.
+            if not self.settings_tab: return
             cell = self.settings_tab.find(SheetSchemaV2.KEY_COMMAND)
             if cell:
                 self.settings_tab.update_cell(cell.row, cell.col + 1, state)
@@ -83,6 +99,7 @@ class SheetManager:
         try:
             # Meeting ID is Column 2 (Index 1)
             # col_values(2) returns the whole column including header
+            if not self.main_tab: return []
             vals = self.main_tab.col_values(2)
             return vals[1:] if vals else []
         except Exception:
@@ -91,14 +108,26 @@ class SheetManager:
     def log_new_recordings(self, recordings_list):
         """
         Add new recordings to the sheet in PENDING status.
-        Does NOT set Team or Playlist (User must likely fill them).
+        Does NOT set Team or Playlist (User must fill them).
+        Includes deduplication to prevent adding existing recordings.
         """
         existing_ids = set(self.get_existing_ids())
+        logger.debug(f"Found {len(existing_ids)} existing recordings in sheet")
+        
         new_rows = []
+        skipped_count = 0
         
         for rec in recordings_list:
             zoom_id = str(rec.get('id', ''))
-            if not zoom_id or zoom_id in existing_ids:
+            
+            if not zoom_id:
+                logger.debug("Skipping recording with empty ID")
+                skipped_count += 1
+                continue
+                
+            if zoom_id in existing_ids:
+                logger.debug(f"Skipping duplicate: {zoom_id} - {rec.get('topic', 'Unknown')}")
+                skipped_count += 1
                 continue
             
             # Schema: Date, ID, Title, Team, Playlist, Status, ApprovedBy, YT, Drive
@@ -116,11 +145,16 @@ class SheetManager:
                 ""                         # Drive Link
             ]
             new_rows.append(row)
-            existing_ids.add(zoom_id)
+            existing_ids.add(zoom_id)  # Add to set to prevent duplicates within this batch
+            logger.debug(f"Queued new recording: {zoom_id} - {rec.get('topic', 'Unknown')}")
+            
+        if skipped_count > 0:
+            logger.info(f"Skipped {skipped_count} duplicate/invalid recordings")
             
         if new_rows:
             logger.info(f"Adding {len(new_rows)} new recordings to Sheet.")
-            self.main_tab.append_rows(new_rows)
+            if self.main_tab:
+                self.main_tab.append_rows(new_rows)
             return len(new_rows)
         return 0
 
@@ -130,6 +164,7 @@ class SheetManager:
         Validation: Must have 'Approved By', 'Team', and 'Playlist' filled.
         """
         try:
+            if not self.main_tab: return []
             all_values = self.main_tab.get_all_values()
             if not all_values: return []
             
@@ -180,6 +215,7 @@ class SheetManager:
             if drive_url:
                 updates.append({'range': f'I{row_idx}', 'values': [[drive_url]]})
                 
-            self.main_tab.batch_update(updates)
+            if self.main_tab:
+                self.main_tab.batch_update(updates)
         except Exception as e:
             logger.error(f"Failed to update row {row_idx}: {e}")

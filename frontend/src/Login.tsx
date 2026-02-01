@@ -1,97 +1,150 @@
 import { GoogleLogin, type CredentialResponse } from '@react-oauth/google';
 import { UserAPI } from './api';
-import { useNavigate } from 'react-router-dom';
-import { Activity, Zap, Shield, Clock } from 'lucide-react';
+import { Activity, Zap, Shield, Clock, Loader2 } from 'lucide-react';
+import { useState } from 'react';
 
 export default function Login() {
-    const navigate = useNavigate();
+    const [isLoading, setIsLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
 
     const handleSuccess = async (credentialResponse: CredentialResponse) => {
+        console.log('Google Login Success:', credentialResponse);
+        setIsLoading(true);
+        setError(null);
+
         try {
             const token = credentialResponse.credential;
             if (!token) {
-                alert('No credential received');
-                return;
+                throw new Error('No credential received from Google');
             }
 
+            console.log('Sending token to backend...');
             const data = await UserAPI.login(token);
-            // Store the token (use returned one or original)
+            console.log('Backend response:', data);
+
+            // Store the token and user data
             localStorage.setItem('vong_token', data.token || token);
             localStorage.setItem('user_data', JSON.stringify(data.user));
-            navigate('/dashboard');
+
+            console.log('Navigating to dashboard...');
+            // Force navigation
+            window.location.href = '/dashboard';
         } catch (error: any) {
-            alert(error.response?.data?.detail || 'Login failed');
+            console.error('Login error:', error);
+            const errorMsg = error.response?.data?.detail || error.message || 'Login failed. Please try again.';
+            setError(errorMsg);
+            alert(errorMsg);
+        } finally {
+            setIsLoading(false);
         }
     };
 
-    return (
-        <div className="min-h-screen bg-gradient-to-br from-slate-900 via-indigo-900 to-slate-900 flex items-center justify-center p-4">
-            {/* Background Pattern */}
-            <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAxMCAwIEwgMCAwIDAgMTAiIGZpbGw9Im5vbmUiIHN0cm9rZT0icmdiYSgyNTUsMjU1LDI1NSwwLjAzKSIgc3Ryb2tlLXdpZHRoPSIxIi8+PC9wYXR0ZXJuPjwvZGVmcz48cmVjdCB3aWR0aD0iMTAwJSIgaGVpZ2h0PSIxMDAlIiBmaWxsPSJ1cmwoI2dyaWQpIi8+PC9zdmc+')] opacity-40"></div>
+    const handleError = () => {
+        console.error('Google Login Error');
+        setError('Google login failed. Please try again.');
+        alert('Google login failed. Please try again.');
+    };
 
-            <div className="relative w-full max-w-md">
+    return (
+        <div style={{ minHeight: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+            <div style={{ width: '100%', maxWidth: '420px' }}>
                 {/* Main Card */}
-                <div className="bg-white/10 backdrop-blur-xl rounded-2xl shadow-2xl border border-white/20 overflow-hidden">
+                <div style={{ background: 'white', borderRadius: '16px', boxShadow: '0 20px 60px rgba(0,0,0,0.3)', overflow: 'hidden' }}>
                     {/* Header */}
-                    <div className="bg-gradient-to-r from-indigo-600 to-purple-600 p-8 text-center">
-                        <div className="inline-flex items-center justify-center w-16 h-16 bg-white/20 rounded-2xl mb-4 backdrop-blur-sm">
-                            <Activity className="w-8 h-8 text-white" />
+                    <div style={{ background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)', padding: '2rem', textAlign: 'center' }}>
+                        <div style={{
+                            width: 64,
+                            height: 64,
+                            margin: '0 auto 1rem',
+                            background: 'rgba(255,255,255,0.2)',
+                            borderRadius: '16px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            backdropFilter: 'blur(10px)',
+                        }}>
+                            <Activity size={32} color="white" />
                         </div>
-                        <h1 className="text-3xl font-bold text-white mb-2">YTZ Automation</h1>
-                        <p className="text-indigo-100 text-sm">Streamline your workflow automation</p>
+                        <h1 style={{ fontSize: '1.875rem', fontWeight: 700, color: 'white', marginBottom: '0.5rem' }}>
+                            YTZ Automation
+                        </h1>
+                        <p style={{ color: 'rgba(255,255,255,0.9)', fontSize: '0.875rem' }}>
+                            Recording Management System
+                        </p>
                     </div>
 
                     {/* Content */}
-                    <div className="p-8">
+                    <div style={{ padding: '2rem' }}>
                         {/* Features */}
-                        <div className="space-y-3 mb-8">
-                            <div className="flex items-center gap-3 text-white/90">
-                                <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center">
-                                    <Zap className="w-4 h-4 text-indigo-400" />
+                        <div style={{ marginBottom: '2rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                <div style={{ width: 36, height: 36, borderRadius: '8px', background: '#eef2ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Zap size={18} color="#667eea" />
                                 </div>
-                                <span className="text-sm">Automated recording processing</span>
+                                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Automated processing</span>
                             </div>
-                            <div className="flex items-center gap-3 text-white/90">
-                                <div className="w-8 h-8 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                                    <Shield className="w-4 h-4 text-purple-400" />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                                <div style={{ width: 36, height: 36, borderRadius: '8px', background: '#f3e8ff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Shield size={18} color="#764ba2" />
                                 </div>
-                                <span className="text-sm">Secure Google authentication</span>
+                                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Secure authentication</span>
                             </div>
-                            <div className="flex items-center gap-3 text-white/90">
-                                <div className="w-8 h-8 rounded-lg bg-blue-500/20 flex items-center justify-center">
-                                    <Clock className="w-4 h-4 text-blue-400" />
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <div style={{ width: 36, height: 36, borderRadius: '8px', background: '#dbeafe', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                                    <Clock size={18} color="#3b82f6" />
                                 </div>
-                                <span className="text-sm">Real-time status monitoring</span>
+                                <span style={{ fontSize: '0.875rem', color: '#64748b' }}>Real-time monitoring</span>
                             </div>
                         </div>
 
+                        {/* Error Message */}
+                        {error && (
+                            <div style={{
+                                padding: '0.75rem 1rem',
+                                background: '#fee2e2',
+                                border: '1px solid #fca5a5',
+                                borderRadius: '8px',
+                                marginBottom: '1rem',
+                                fontSize: '0.875rem',
+                                color: '#991b1b',
+                            }}>
+                                {error}
+                            </div>
+                        )}
+
                         {/* Login Button */}
-                        <div className="bg-white rounded-xl p-6 shadow-lg">
-                            <p className="text-center text-sm text-gray-600 mb-4 font-medium">
+                        <div style={{ background: '#f8fafc', borderRadius: '12px', padding: '1.5rem', border: '1px solid #e2e8f0' }}>
+                            <p style={{ textAlign: 'center', fontSize: '0.875rem', color: '#64748b', marginBottom: '1rem', fontWeight: 500 }}>
                                 Sign in to continue
                             </p>
-                            <div className="flex flex-col gap-3 justify-center">
-                                <GoogleLogin
-                                    onSuccess={handleSuccess}
-                                    onError={() => alert('Login Failed')}
-                                    useOneTap={false}
-                                    theme="filled_blue"
-                                    size="large"
-                                    text="signin_with"
-                                    shape="rectangular"
-                                />
-                            </div>
+
+                            {isLoading ? (
+                                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+                                    <Loader2 size={24} color="#667eea" className="animate-spin" />
+                                    <span style={{ marginLeft: '0.75rem', color: '#64748b' }}>Logging in...</span>
+                                </div>
+                            ) : (
+                                <div style={{ display: 'flex', justifyContent: 'center' }}>
+                                    <GoogleLogin
+                                        onSuccess={handleSuccess}
+                                        onError={handleError}
+                                        useOneTap={false}
+                                        theme="outline"
+                                        size="large"
+                                        text="signin_with"
+                                        shape="rectangular"
+                                        width="280"
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         {/* Footer Note */}
-                        <p className="text-center text-xs text-white/60 mt-6">
+                        <p style={{ textAlign: 'center', fontSize: '0.75rem', color: '#94a3b8', marginTop: '1.5rem' }}>
                             Authorized users only • Secure access
                         </p>
                     </div>
                 </div>
-
-                {/* Bottom Glow Effect */}
-                <div className="absolute -bottom-4 left-1/2 -translate-x-1/2 w-3/4 h-8 bg-indigo-500/30 blur-2xl rounded-full"></div>
             </div>
         </div>
     );

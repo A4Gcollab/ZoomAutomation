@@ -1,359 +1,611 @@
-
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { UserAPI } from './api';
-import {
-    CheckCircle, Clock, RefreshCcw, Layers, LogOut,
-    Activity, ChevronDown, PenLine,
-    LayoutGrid, List, Plus, ExternalLink
-} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import clsx from 'clsx';
-import { ServiceStatus } from './ServiceStatus';
+import { LogOut, Activity, CheckCircle, Clock, AlertCircle, RefreshCw, Play, Square, RotateCw, ExternalLink } from 'lucide-react';
 import { notify } from './notifications';
+
+interface Stats {
+    completed: number;
+    pending: number;
+}
+
+interface Recording {
+    zoom_id: string;
+    topic: string;
+    start_time: string;
+    status: string;
+    team?: string;
+    playlist?: string;
+    youtube_url?: string;
+    drive_url?: string;
+    account_name?: string;
+}
+
+interface LogEntry {
+    timestamp: string;
+    level: string;
+    logger: string;
+    message: string;
+}
+
+interface ServiceHealth {
+    status: string;
+    running: boolean;
+    uptime?: number;
+    last_heartbeat?: string;
+}
 
 export default function Dashboard() {
     const navigate = useNavigate();
-    const [stats, setStats] = useState({ completed: 0, pending: 0 });
-    const [queue, setQueue] = useState<any[]>([]);
-    const [history, setHistory] = useState<any[]>([]);
-    const [logs, setLogs] = useState<any[]>([]);
-    const [options, setOptions] = useState<{ teams: string[], playlists: string[] }>({ teams: [], playlists: [] });
-    const [activeTab, setActiveTab] = useState<'queue' | 'history'>('queue');
-    const logEndRef = useRef<HTMLDivElement>(null);
-    const [user] = useState(() => JSON.parse(localStorage.getItem('user_data') || '{}'));
-    const isAdmin = user.role === 'admin';
-
-    // Edit State
-    const [editingRow, setEditingRow] = useState<string | null>(null);
-    const [editForm, setEditForm] = useState({ team: '', playlist: '' });
-    const [inputMode, setInputMode] = useState({ team: false, playlist: false });
-    const [loading, setLoading] = useState(false);
-
-    const refreshData = async () => {
-        try {
-            const promises = [
-                UserAPI.getStats(),
-                UserAPI.getQueue(),
-                UserAPI.getHistory(),
-                UserAPI.getOptions()
-            ];
-
-            // Only fetch logs if user is admin
-            if (isAdmin) {
-                promises.push(UserAPI.getLogs());
-            }
-
-            const results = await Promise.all(promises);
-            setStats(results[0]);
-            setQueue(results[1]);
-            setHistory(results[2]);
-            setOptions(results[3]);
-            if (isAdmin && results[4]) {
-                setLogs(results[4].logs || []);  // Extract logs array from response
-            }
-        } catch (error: any) {
-            const msg = error.response?.data?.detail || error.message || 'Unknown error';
-            notify.error(`Failed to refresh data: ${msg}`);
-            console.error('Refresh error:', error);
-        }
-    };
-
-    const openGoogleSheets = async () => {
-        try {
-            const data = await UserAPI.getSheetsUrl();
-            window.open(data.url, '_blank');
-        } catch (e) {
-            alert('Failed to open Google Sheets');
-        }
-    };
+    const [stats, setStats] = useState<Stats>({ completed: 0, pending: 0 });
+    const [queue, setQueue] = useState<Recording[]>([]);
+    const [history, setHistory] = useState<Recording[]>([]);
+    const [logs, setLogs] = useState<LogEntry[]>([]);
+    const [errors, setErrors] = useState<LogEntry[]>([]);
+    const [serviceHealth, setServiceHealth] = useState<ServiceHealth | null>(null);
+    const [activeTab, setActiveTab] = useState<'queue' | 'history' | 'logs' | 'errors'>('queue');
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [user, setUser] = useState<any>(null);
 
     useEffect(() => {
+        const userData = localStorage.getItem('user_data');
+        if (userData) {
+            setUser(JSON.parse(userData));
+        }
         refreshData();
-        const interval = setInterval(refreshData, 5000);
+        const interval = setInterval(refreshData, 10000); // Refresh every 10s
         return () => clearInterval(interval);
     }, []);
 
-    useEffect(() => {
-        logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, [logs]);
-
-    const handleApprove = async (id: string) => {
-        if (!editForm.team || !editForm.playlist) {
-            notify.warning('Please set Team and Playlist first');
-            return;
-        }
-        setLoading(true);
+    const refreshData = async () => {
+        setIsRefreshing(true);
         try {
-            await UserAPI.approve(id, editForm);
-            notify.success('Recording approved successfully!');
-            setEditingRow(null);
-            await refreshData();
-            setInputMode({ team: false, playlist: false });
-        } catch (e: any) {
-            notify.apiError('Approval', e.response?.data?.detail || e.message);
+            const [statsData, queueData, historyData, logsData, errorsData, healthData] = await Promise.all([
+                UserAPI.getStats(),
+                UserAPI.getQueue(),
+                UserAPI.getHistory(),
+                UserAPI.getLogs(),
+                UserAPI.getErrors(),
+                UserAPI.getServiceHealth(),
+            ]);
+
+            setStats(statsData);
+            setQueue(queueData);
+            setHistory(historyData);
+            setLogs(logsData.logs || []);
+            setErrors(errorsData.logs || []);
+            setServiceHealth(healthData);
+        } catch (error: any) {
+            if (error.response?.status === 401) {
+                notify.error('Session expired. Please log in again.');
+                localStorage.removeItem('vong_token');
+                localStorage.removeItem('user_data');
+                navigate('/');
+                return;
+            }
+            notify.error('Failed to refresh data');
+            console.error('Refresh error:', error);
         } finally {
-            setLoading(false);
+            setIsRefreshing(false);
         }
     };
 
-    const startEdit = (row: any) => {
-        setEditingRow(row.zoom_id);
-        const hasTeam = options.teams.includes(row.team);
-        const hasPlaylist = options.playlists.includes(row.playlist);
-        setInputMode({
-            team: !!row.team && !hasTeam,
-            playlist: !!row.playlist && !hasPlaylist
-        });
-        setEditForm({ team: row.team || '', playlist: row.playlist || '' });
+    const handleLogout = () => {
+        localStorage.removeItem('vong_token');
+        localStorage.removeItem('user_data');
+        navigate('/');
     };
+
+    const handleApprove = async (id: string, team: string, playlist: string) => {
+        try {
+            await UserAPI.approve(id, { team, playlist });
+            notify.success('Recording approved!');
+            refreshData();
+        } catch (error) {
+            notify.error('Failed to approve recording');
+        }
+    };
+
+    const handleServiceAction = async (action: 'start' | 'stop' | 'restart') => {
+        try {
+            if (action === 'start') await UserAPI.startService();
+            else if (action === 'stop') await UserAPI.stopService();
+            else await UserAPI.restartService();
+
+            notify.success(`Service ${action} initiated`);
+            setTimeout(refreshData, 1000);
+        } catch (error) {
+            notify.error(`Failed to ${action} service`);
+        }
+    };
+
+    const isAdmin = user?.role === 'admin';
+    const errorCount = errors.length;
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-800 font-sans">
-            {/* Minimal Header */}
-            <header className="bg-white border-b border-slate-200 px-6 lg:px-12 py-5 flex items-center justify-between sticky top-0 z-50 shadow-sm/50 backdrop-blur-md bg-white/90">
-                <div className="flex items-center gap-4">
-                    <div className="h-10 w-10 bg-indigo-600 rounded-xl flex items-center justify-center text-white shadow-indigo-200 shadow-lg">
-                        <LayoutGrid className="w-6 h-6" />
-                    </div>
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-900 leading-none">Zoom Automation</h1>
-                        <div className="flex items-center gap-2 text-xs text-slate-500 mt-1">
-                            <div className="h-2 w-2 rounded-full bg-emerald-500 shadow-emerald-200 shadow-md"></div>
-                            <span className="font-medium">Connected as {user.name}</span>
-                        </div>
-                    </div>
+        <div style={{ minHeight: '100vh', background: 'var(--bg-primary)' }}>
+            {/* Header */}
+            <header style={{
+                background: 'var(--bg-surface)',
+                borderBottom: '1px solid var(--border-subtle)',
+                padding: '1rem 2rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+            }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                    <Activity size={28} color="var(--primary)" />
+                    <h1 style={{ fontSize: '1.5rem', fontWeight: 700, letterSpacing: '-0.02em' }}>
+                        YTZ AUTOMATION
+                    </h1>
                 </div>
 
-                <div className="flex items-center gap-2">
-                    {isAdmin && <ServiceStatus />}
-                    {isAdmin && (
-                        <button onClick={openGoogleSheets} className="btn-ghost flex items-center gap-2 text-sm font-medium text-emerald-600 hover:bg-emerald-50">
-                            <ExternalLink className="w-4 h-4" />
-                            Sheets
-                        </button>
-                    )}
-                    <button onClick={() => UserAPI.sync()} className="btn-ghost flex items-center gap-2 text-sm font-medium">
-                        <RefreshCcw className="w-4 h-4" />
-                        Sync
+                <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                    <button
+                        onClick={refreshData}
+                        className="btn-ghost"
+                        disabled={isRefreshing}
+                        style={{ padding: '0.5rem' }}
+                    >
+                        <RefreshCw size={18} className={isRefreshing ? 'animate-spin' : ''} />
                     </button>
-                    <button onClick={() => { localStorage.clear(); navigate('/login'); }} className="btn-ghost text-red-500 hover:bg-red-50 hover:text-red-600">
-                        <LogOut className="w-5 h-5" />
+
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <div style={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            background: 'var(--bg-elevated)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 600,
+                            fontSize: '0.875rem',
+                        }}>
+                            {user?.email?.[0]?.toUpperCase() || 'U'}
+                        </div>
+                        <div>
+                            <div style={{ fontSize: '0.875rem', fontWeight: 500 }}>{user?.email}</div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {isAdmin ? 'Administrator' : 'User'}
+                            </div>
+                        </div>
+                    </div>
+
+                    <button onClick={handleLogout} className="btn-ghost" style={{ padding: '0.5rem' }}>
+                        <LogOut size={18} />
                     </button>
                 </div>
             </header>
 
-            <main className="w-full px-6 lg:px-12 py-8 space-y-8">
-                {/* Stats */}
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
-                    <div className="zen-card p-5 flex items-center gap-4 border-l-4 border-l-emerald-500">
-                        <div className="h-12 w-12 rounded-full bg-emerald-50 flex items-center justify-center text-emerald-600">
-                            <CheckCircle className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-2xl font-bold text-slate-900">{stats.completed}</p>
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Processed</p>
-                        </div>
-                    </div>
-                    <div className="zen-card p-5 flex items-center gap-4 border-l-4 border-l-amber-500">
-                        <div className="h-12 w-12 rounded-full bg-amber-50 flex items-center justify-center text-amber-600">
-                            <Clock className="w-6 h-6" />
-                        </div>
-                        <div>
-                            <p className="text-2xl font-bold text-slate-900">{stats.pending}</p>
-                            <p className="text-xs font-medium text-slate-500 uppercase tracking-wider">Pending</p>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="grid grid-cols-1 xl:grid-cols-4 gap-8 items-start">
-                    {/* Main List - Wider (3/4) */}
-                    <div className="xl:col-span-3 zen-card overflow-hidden min-h-[600px] flex flex-col shadow-sm">
-                        <div className="flex border-b border-slate-200">
-                            <button
-                                onClick={() => setActiveTab('queue')}
-                                className={clsx("flex-1 py-4 text-sm font-semibold text-center hover:bg-slate-50 transition-colors border-b-2", activeTab === 'queue' ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500")}
-                            >
-                                Approval Queue ({queue.length})
-                            </button>
-                            <button
-                                onClick={() => setActiveTab('history')}
-                                className={clsx("flex-1 py-4 text-sm font-semibold text-center hover:bg-slate-50 transition-colors border-b-2", activeTab === 'history' ? "border-indigo-600 text-indigo-600" : "border-transparent text-slate-500")}
-                            >
-                                Upload History ({history.length})
-                            </button>
-                        </div>
-
-                        <div className="flex-1 overflow-x-visible p-6">
-                            {(activeTab === 'queue' ? queue : history).length === 0 ? (
-                                <div className="flex flex-col items-center justify-center h-64 text-slate-400">
-                                    <List className="w-12 h-12 mb-4 opacity-20" />
-                                    <p>No items found.</p>
+            <div style={{ padding: '2rem', maxWidth: '1600px', margin: '0 auto' }}>
+                {/* Service Control Panel */}
+                <div className="industrial-card-elevated" style={{ marginBottom: '2rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1.5rem' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <span
+                                    className={`status-dot ${serviceHealth?.running ? 'status-dot-success' : 'status-dot-error'}`}
+                                />
+                                <div>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                        Background Service
+                                    </div>
+                                    <div style={{ fontSize: '1.25rem', fontWeight: 600 }}>
+                                        {serviceHealth?.running ? 'RUNNING' : 'STOPPED'}
+                                    </div>
                                 </div>
-                            ) : (
-                                <table className="w-full text-left text-sm">
-                                    <thead className="text-xs text-slate-400 uppercase font-semibold">
-                                        <tr>
-                                            <th className="pb-4 pl-2">Meeting Details</th>
-                                            <th className="pb-4">Configuration</th>
-                                            <th className="pb-4 text-right pr-2">Action</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-slate-100">
-                                        {activeTab === 'queue' && queue.map((row) => (
-                                            <tr key={row.zoom_id} className="group hover:bg-slate-50 transition-colors">
-                                                <td className="py-4 pl-2 align-top">
-                                                    <div className="font-semibold text-slate-800">{row.topic || "Untitled"}</div>
-                                                    <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
-                                                        <Clock className="w-3 h-3" />
-                                                        {row.start_time?.substring(0, 16).replace('T', ' ')}
-                                                    </div>
-                                                </td>
-                                                <td className="py-4 align-top w-[45%]">
-                                                    {editingRow === row.zoom_id ? (
-                                                        <div className="bg-white border border-indigo-200 shadow-lg rounded-xl p-4 space-y-4 relative z-10 animate-in fade-in zoom-in-95 duration-200">
-                                                            {/* TEAM */}
-                                                            <div className="space-y-1">
-                                                                <label className="text-label flex justify-between">
-                                                                    Team
-                                                                    {inputMode.team && <button onClick={() => setInputMode(p => ({ ...p, team: false }))} className="text-indigo-600 hover:underline text-[10px]">Select List</button>}
-                                                                </label>
-                                                                {inputMode.team ? (
-                                                                    <input autoFocus value={editForm.team} onChange={e => setEditForm({ ...editForm, team: e.target.value })} className="zen-input" placeholder="Enter Team Name..." />
-                                                                ) : (
-                                                                    <div className="relative">
-                                                                        <select
-                                                                            value={editForm.team} onChange={e => {
-                                                                                if (e.target.value === '__NEW__') { setInputMode(p => ({ ...p, team: true })); setEditForm(p => ({ ...p, team: '' })); }
-                                                                                else setEditForm(p => ({ ...p, team: e.target.value }));
-                                                                            }}
-                                                                            className="zen-input appearance-none cursor-pointer"
-                                                                        >
-                                                                            <option value="" disabled>Select Team...</option>
-                                                                            {options.teams.map(t => <option key={t} value={t}>{t}</option>)}
-                                                                            <option value="__NEW__" className="text-indigo-600 font-bold">+ Create New</option>
-                                                                        </select>
-                                                                        <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
-                                                                    </div>
-                                                                )}
-                                                            </div>
+                            </div>
 
-                                                            {/* PLAYLIST */}
-                                                            <div className="space-y-1">
-                                                                <label className="text-label flex justify-between">
-                                                                    Playlist
-                                                                    {inputMode.playlist && <button onClick={() => setInputMode(p => ({ ...p, playlist: false }))} className="text-indigo-600 hover:underline text-[10px]">Select List</button>}
-                                                                </label>
-                                                                {inputMode.playlist ? (
-                                                                    <input value={editForm.playlist} onChange={e => setEditForm({ ...editForm, playlist: e.target.value })} className="zen-input" placeholder="Enter Playlist..." />
-                                                                ) : (
-                                                                    <div className="relative">
-                                                                        <select
-                                                                            value={editForm.playlist} onChange={e => {
-                                                                                if (e.target.value === '__NEW__') { setInputMode(p => ({ ...p, playlist: true })); setEditForm(p => ({ ...p, playlist: '' })); }
-                                                                                else setEditForm(p => ({ ...p, playlist: e.target.value }));
-                                                                            }}
-                                                                            className="zen-input appearance-none cursor-pointer"
-                                                                        >
-                                                                            <option value="" disabled>Select Playlist...</option>
-                                                                            {options.playlists.map(p => <option key={p} value={p}>{p}</option>)}
-                                                                            <option value="__NEW__" className="text-indigo-600 font-bold">+ Create New</option>
-                                                                        </select>
-                                                                        <ChevronDown className="absolute right-3 top-2.5 w-4 h-4 text-slate-400 pointer-events-none" />
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    ) : (
-                                                        <div onClick={() => startEdit(row)} className="group/edit cursor-pointer p-2 rounded-lg hover:bg-slate-100 -ml-2 transition-colors">
-                                                            {row.team ? (
-                                                                <div className="space-y-1">
-                                                                    <div className="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-slate-100 text-slate-600 border border-slate-200">
-                                                                        {row.team}
-                                                                    </div>
-                                                                    <div className="text-xs text-slate-500 flex items-center gap-1.5">
-                                                                        <Layers className="w-3 h-3 text-slate-400" />
-                                                                        {row.playlist}
-                                                                    </div>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="flex items-center gap-2 text-xs text-indigo-600 font-medium">
-                                                                    <Plus className="w-4 h-4 bg-indigo-50 rounded-full p-0.5" />
-                                                                    Configure
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    )}
-                                                </td>
-                                                <td className="py-4 pr-2 align-top text-right">
-                                                    {editingRow === row.zoom_id ? (
-                                                        <button onClick={() => handleApprove(row.zoom_id)} disabled={loading} className="btn-primary text-xs w-full mt-8">
-                                                            {loading ? '...' : 'Save'}
-                                                        </button>
-                                                    ) : (
-                                                        <button onClick={() => startEdit(row)} className="p-2 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors">
-                                                            <PenLine className="w-4 h-4" />
-                                                        </button>
-                                                    )}
-                                                </td>
-                                            </tr>
-                                        ))}
-
-                                        {activeTab === 'history' && history.map(row => (
-                                            <tr key={row.zoom_id} className="hover:bg-slate-50">
-                                                <td className="py-4 pl-2">
-                                                    <div className="font-medium text-slate-800">{row.topic}</div>
-                                                    <div className="text-xs text-slate-500">{row.start_time?.substring(0, 10)}</div>
-                                                </td>
-                                                <td className="py-4">
-                                                    <div className="flex items-center gap-2">
-                                                        <span className={clsx("text-xs px-2 py-0.5 rounded font-bold", row.status === 'COMPLETED' ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600")}>
-                                                            {row.status}
-                                                        </span>
-                                                        <span className="text-xs text-slate-400">by {row.approved_by}</span>
-                                                    </div>
-                                                </td>
-                                                <td className="py-4 text-right pr-2 text-xs text-slate-500">
-                                                    <div>{row.team}</div>
-                                                </td>
-                                            </tr>
-                                        ))}
-                                    </tbody>
-                                </table>
+                            {serviceHealth?.uptime !== undefined && (
+                                <div style={{ paddingLeft: '1.5rem', borderLeft: '1px solid var(--border-subtle)' }}>
+                                    <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase' }}>
+                                        Uptime
+                                    </div>
+                                    <div style={{ fontSize: '1rem', fontWeight: 500, fontFamily: 'JetBrains Mono' }}>
+                                        {Math.floor(serviceHealth.uptime / 60)}m {serviceHealth.uptime % 60}s
+                                    </div>
+                                </div>
                             )}
                         </div>
-                    </div>
 
-                    {/* Logs - Narrower (1/4) */}
-                    <div className="xl:col-span-1 zen-card h-[600px] flex flex-col overflow-hidden bg-slate-900 border-slate-900 text-slate-300 shadow-xl">
-                        <div className="p-4 border-b border-slate-800 flex items-center justify-between bg-slate-950/50 backdrop-blur">
-                            <h2 className="text-sm font-semibold text-white flex items-center gap-2">
-                                <Activity className="w-4 h-4 text-emerald-500" /> System Logs
-                            </h2>
-                        </div>
-                        <div className="flex-1 overflow-y-auto p-4 space-y-2 font-mono text-xs">
-                            {!isAdmin ? (
-                                <div className="flex flex-col items-center justify-center h-full text-slate-600 text-center px-4">
-                                    <Activity className="w-12 h-12 mb-4 opacity-20" />
-                                    <p className="text-sm">Admin access required</p>
-                                    <p className="text-xs mt-2 opacity-60">System logs are only visible to administrators</p>
-                                </div>
-                            ) : (
+                        <div style={{ display: 'flex', gap: '0.75rem' }}>
+                            {!serviceHealth?.running && (
+                                <button onClick={() => handleServiceAction('start')} className="btn-success">
+                                    <Play size={16} />
+                                    Start
+                                </button>
+                            )}
+                            {serviceHealth?.running && (
                                 <>
-                                    {logs.length === 0 && <div className="text-slate-600 text-center mt-10">Use the system...</div>}
-                                    {logs.map(log => (
-                                        <div key={log.id} className="break-words">
-                                            <span className="text-slate-500 mr-2">[{log.timestamp?.substring(11, 19)}]</span>
-                                            <span className={clsx("font-bold mr-2", log.level === 'ERROR' ? "text-red-400" : "text-blue-400")}>{log.level}</span>
-                                            <span className="text-slate-300">{log.message}</span>
-                                        </div>
-                                    ))}
-                                    <div ref={logEndRef}></div>
+                                    <button onClick={() => handleServiceAction('stop')} className="btn-error">
+                                        <Square size={16} />
+                                        Stop
+                                    </button>
+                                    <button onClick={() => handleServiceAction('restart')} className="btn-primary">
+                                        <RotateCw size={16} />
+                                        Restart
+                                    </button>
                                 </>
                             )}
                         </div>
                     </div>
                 </div>
-            </main>
+
+                {/* Stats Cards */}
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '2rem' }}>
+                    <div className="industrial-card">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Pending
+                            </span>
+                            <Clock size={18} color="var(--warning)" />
+                        </div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'JetBrains Mono' }}>
+                            {stats.pending}
+                        </div>
+                    </div>
+
+                    <div className="industrial-card">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Completed
+                            </span>
+                            <CheckCircle size={18} color="var(--success)" />
+                        </div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'JetBrains Mono' }}>
+                            {stats.completed}
+                        </div>
+                    </div>
+
+                    <div className="industrial-card">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Errors
+                            </span>
+                            <AlertCircle size={18} color="var(--error)" />
+                        </div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'JetBrains Mono', color: errorCount > 0 ? 'var(--error)' : 'inherit' }}>
+                            {errorCount}
+                        </div>
+                    </div>
+
+                    <div className="industrial-card">
+                        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Total
+                            </span>
+                            <Activity size={18} color="var(--primary)" />
+                        </div>
+                        <div style={{ fontSize: '2rem', fontWeight: 700, fontFamily: 'JetBrains Mono' }}>
+                            {stats.pending + stats.completed}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Tabs */}
+                <div style={{ borderBottom: '1px solid var(--border-subtle)', marginBottom: '1.5rem' }}>
+                    <div style={{ display: 'flex', gap: '2rem' }}>
+                        {(['queue', 'history', 'logs', 'errors'] as const).map(tab => (
+                            <button
+                                key={tab}
+                                onClick={() => setActiveTab(tab)}
+                                style={{
+                                    padding: '0.75rem 0',
+                                    fontSize: '0.875rem',
+                                    fontWeight: 600,
+                                    textTransform: 'uppercase',
+                                    letterSpacing: '0.05em',
+                                    background: 'none',
+                                    border: 'none',
+                                    borderBottom: activeTab === tab ? '2px solid var(--primary)' : '2px solid transparent',
+                                    color: activeTab === tab ? 'var(--primary)' : 'var(--text-secondary)',
+                                    cursor: 'pointer',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                {tab}
+                                {tab === 'errors' && errorCount > 0 && (
+                                    <span style={{
+                                        marginLeft: '0.5rem',
+                                        padding: '0.125rem 0.5rem',
+                                        background: 'var(--error)',
+                                        borderRadius: '9999px',
+                                        fontSize: '0.75rem',
+                                        fontWeight: 700,
+                                    }}>
+                                        {errorCount}
+                                    </span>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {/* Tab Content */}
+                {activeTab === 'queue' && (
+                    <QueueTab queue={queue} onApprove={handleApprove} />
+                )}
+
+                {activeTab === 'history' && (
+                    <HistoryTab history={history} />
+                )}
+
+                {activeTab === 'logs' && (
+                    <LogsTab logs={logs} />
+                )}
+
+                {activeTab === 'errors' && (
+                    <ErrorsTab errors={errors} />
+                )}
+            </div>
+        </div>
+    );
+}
+
+// Queue Tab Component
+function QueueTab({ queue, onApprove }: { queue: Recording[], onApprove: (id: string, team: string, playlist: string) => void }) {
+    const [editingId, setEditingId] = useState<string | null>(null);
+    const [editTeam, setEditTeam] = useState('');
+    const [editPlaylist, setEditPlaylist] = useState('');
+
+    if (queue.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
+                <Clock size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                <div style={{ fontSize: '1.125rem', fontWeight: 500 }}>No pending recordings</div>
+                <div style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>All recordings have been processed</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="table-container">
+            <table className="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Topic</th>
+                        <th>Zoom ID</th>
+                        <th>Team</th>
+                        <th>Playlist</th>
+                        <th>Actions</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {queue.map(rec => (
+                        <tr key={rec.zoom_id}>
+                            <td className="text-mono">{rec.start_time.split('T')[0]}</td>
+                            <td>{rec.topic}</td>
+                            <td className="text-mono" style={{ color: 'var(--text-secondary)' }}>{rec.zoom_id}</td>
+                            <td>
+                                {editingId === rec.zoom_id ? (
+                                    <input
+                                        className="input"
+                                        value={editTeam}
+                                        onChange={(e) => setEditTeam(e.target.value)}
+                                        placeholder="Team name"
+                                        style={{ minWidth: '150px' }}
+                                    />
+                                ) : (
+                                    <span>{rec.team || '-'}</span>
+                                )}
+                            </td>
+                            <td>
+                                {editingId === rec.zoom_id ? (
+                                    <input
+                                        className="input"
+                                        value={editPlaylist}
+                                        onChange={(e) => setEditPlaylist(e.target.value)}
+                                        placeholder="Playlist name"
+                                        style={{ minWidth: '150px' }}
+                                    />
+                                ) : (
+                                    <span>{rec.playlist || '-'}</span>
+                                )}
+                            </td>
+                            <td>
+                                {editingId === rec.zoom_id ? (
+                                    <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                        <button
+                                            className="btn-success"
+                                            style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
+                                            onClick={() => {
+                                                onApprove(rec.zoom_id, editTeam, editPlaylist);
+                                                setEditingId(null);
+                                            }}
+                                        >
+                                            Approve
+                                        </button>
+                                        <button
+                                            className="btn-ghost"
+                                            style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
+                                            onClick={() => setEditingId(null)}
+                                        >
+                                            Cancel
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        className="btn-primary"
+                                        style={{ padding: '0.375rem 0.75rem', fontSize: '0.75rem' }}
+                                        onClick={() => {
+                                            setEditingId(rec.zoom_id);
+                                            setEditTeam(rec.team || '');
+                                            setEditPlaylist(rec.playlist || '');
+                                        }}
+                                    >
+                                        Edit & Approve
+                                    </button>
+                                )}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// History Tab Component
+function HistoryTab({ history }: { history: Recording[] }) {
+    if (history.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
+                <CheckCircle size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                <div style={{ fontSize: '1.125rem', fontWeight: 500 }}>No completed recordings</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="table-container">
+            <table className="table">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Topic</th>
+                        <th>Status</th>
+                        <th>Team</th>
+                        <th>Links</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {history.map(rec => (
+                        <tr key={rec.zoom_id}>
+                            <td className="text-mono">{rec.start_time.split('T')[0]}</td>
+                            <td>{rec.topic}</td>
+                            <td>
+                                <span className={`badge badge-${rec.status.toLowerCase()}`}>
+                                    {rec.status}
+                                </span>
+                            </td>
+                            <td>{rec.team || '-'}</td>
+                            <td>
+                                <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                    {rec.youtube_url && (
+                                        <a
+                                            href={rec.youtube_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="btn-ghost"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                        >
+                                            <ExternalLink size={14} />
+                                            YouTube
+                                        </a>
+                                    )}
+                                    {rec.drive_url && (
+                                        <a
+                                            href={rec.drive_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="btn-ghost"
+                                            style={{ padding: '0.25rem 0.5rem', fontSize: '0.75rem' }}
+                                        >
+                                            <ExternalLink size={14} />
+                                            Drive
+                                        </a>
+                                    )}
+                                </div>
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+// Logs Tab Component
+function LogsTab({ logs }: { logs: LogEntry[] }) {
+    if (logs.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
+                <Activity size={48} style={{ margin: '0 auto 1rem', opacity: 0.5 }} />
+                <div style={{ fontSize: '1.125rem', fontWeight: 500 }}>No logs available</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="industrial-card" style={{ padding: 0 }}>
+            <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                {logs.map((log, i) => (
+                    <div
+                        key={i}
+                        style={{
+                            padding: '0.75rem 1rem',
+                            borderBottom: i < logs.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                            fontFamily: 'JetBrains Mono',
+                            fontSize: '0.8125rem',
+                            display: 'grid',
+                            gridTemplateColumns: '140px 80px 100px 1fr',
+                            gap: '1rem',
+                            alignItems: 'start',
+                        }}
+                    >
+                        <span style={{ color: 'var(--text-tertiary)' }}>{log.timestamp}</span>
+                        <span className={`badge badge-${log.level.toLowerCase()}`} style={{ fontSize: '0.625rem', padding: '0.125rem 0.5rem' }}>
+                            {log.level}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)' }}>{log.logger}</span>
+                        <span style={{ color: 'var(--text-primary)', wordBreak: 'break-word' }}>{log.message}</span>
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+// Errors Tab Component
+function ErrorsTab({ errors }: { errors: LogEntry[] }) {
+    if (errors.length === 0) {
+        return (
+            <div style={{ textAlign: 'center', padding: '4rem', color: 'var(--text-secondary)' }}>
+                <CheckCircle size={48} style={{ margin: '0 auto 1rem', opacity: 0.5, color: 'var(--success)' }} />
+                <div style={{ fontSize: '1.125rem', fontWeight: 500 }}>No errors found</div>
+                <div style={{ fontSize: '0.875rem', marginTop: '0.5rem' }}>System is running smoothly</div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="industrial-card" style={{ padding: 0 }}>
+            <div style={{ maxHeight: '600px', overflowY: 'auto' }}>
+                {errors.map((error, i) => (
+                    <div
+                        key={i}
+                        style={{
+                            padding: '1rem',
+                            borderBottom: i < errors.length - 1 ? '1px solid var(--border-subtle)' : 'none',
+                            background: i % 2 === 0 ? 'var(--bg-surface)' : 'var(--bg-elevated)',
+                        }}
+                    >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', marginBottom: '0.5rem' }}>
+                            <AlertCircle size={16} color="var(--error)" />
+                            <span style={{ fontFamily: 'JetBrains Mono', fontSize: '0.75rem', color: 'var(--text-tertiary)' }}>
+                                {error.timestamp}
+                            </span>
+                            <span className="badge badge-error" style={{ fontSize: '0.625rem', padding: '0.125rem 0.5rem' }}>
+                                {error.level}
+                            </span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+                                {error.logger}
+                            </span>
+                        </div>
+                        <div style={{
+                            fontFamily: 'JetBrains Mono',
+                            fontSize: '0.8125rem',
+                            color: 'var(--error)',
+                            whiteSpace: 'pre-wrap',
+                            wordBreak: 'break-word',
+                        }}>
+                            {error.message}
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
     );
 }

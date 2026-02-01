@@ -33,6 +33,7 @@ export const UserAPI = {
     getHistory: async () => (await api.get('/history')).data,
     getOptions: async () => (await api.get('/options')).data,
     getLogs: async () => (await api.get('/logs')).data,
+    getErrors: async () => (await api.get('/errors')).data,
     approve: async (id: string, data: { team: string, playlist: string }) =>
         (await api.post(`/approve/${id}`, data)).data,
     sync: async () => (await api.post('/sync')).data,

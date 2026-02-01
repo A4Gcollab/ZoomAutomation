@@ -135,15 +135,69 @@ def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict = Depe
     return {"status": "Approved"}
 
 @app.get("/logs")
-def get_logs(lines: int = 100):
+def get_logs(lines: int = 100, level: str = None):
+    """Get system logs with optional filtering by level (INFO, WARNING, ERROR)"""
     if not os.path.exists(log_file):
-        return {"logs": ["Log file not found."]}
+        return {"logs": [{"timestamp": "", "level": "INFO", "message": "Log file not found."}]}
+    
     try:
-        with open(log_file, 'r') as f:
+        with open(log_file, 'r', encoding='utf-8') as f:
             all_lines = f.readlines()
-            return {"logs": all_lines[-lines:]}
+            recent_lines = all_lines[-lines:] if len(all_lines) > lines else all_lines
+        
+        # Parse logs into structured format
+        structured_logs = []
+        for line in recent_lines:
+            line = line.strip()
+            if not line:
+                continue
+            
+            # Try to parse log format: "2026-01-31 20:33:24,613 - Main - INFO - Message"
+            try:
+                parts = line.split(' - ', 3)
+                if len(parts) >= 4:
+                    timestamp = parts[0]
+                    logger_name = parts[1]
+                    log_level = parts[2]
+                    message = parts[3]
+                    
+                    # Filter by level if specified
+                    if level and log_level != level:
+                        continue
+                    
+                    structured_logs.append({
+                        "timestamp": timestamp,
+                        "level": log_level,
+                        "logger": logger_name,
+                        "message": message
+                    })
+                else:
+                    # Fallback for unparsed lines
+                    structured_logs.append({
+                        "timestamp": "",
+                        "level": "INFO",
+                        "logger": "System",
+                        "message": line
+                    })
+            except Exception:
+                # If parsing fails, add as raw message
+                structured_logs.append({
+                    "timestamp": "",
+                    "level": "INFO",
+                    "logger": "System",
+                    "message": line
+                })
+        
+        return {"logs": structured_logs, "total": len(structured_logs)}
+        
     except Exception as e:
-        return {"logs": [f"Error reading logs: {e}"]}
+        logger.error(f"Error reading logs: {e}")
+        return {"logs": [{"timestamp": "", "level": "ERROR", "message": f"Error reading logs: {e}"}], "total": 0}
+
+@app.get("/errors")
+def get_errors(lines: int = 50):
+    """Get only ERROR level logs"""
+    return get_logs(lines=lines * 3, level="ERROR")  # Fetch more to get enough errors
 
 @app.post("/sync")
 def trigger_sync(user: dict = Depends(get_current_user)):

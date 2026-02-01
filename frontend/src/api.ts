@@ -7,11 +7,14 @@ const API_URL = import.meta.env.PROD
     ? '/api' // Nginx proxy behavior
     : 'http://localhost:8000'; // Local dev
 
+console.log('API_URL configured as:', API_URL);
+
 export const api = axios.create({
     baseURL: API_URL,
     headers: {
         'Content-Type': 'application/json',
     },
+    timeout: 30000, // 30 second timeout
 });
 
 // Interceptor to add Token
@@ -20,13 +23,39 @@ api.interceptors.request.use((config) => {
     if (token) {
         config.headers['x-token'] = token;
     }
+    console.log('API Request:', config.method?.toUpperCase(), config.url);
     return config;
 });
 
+// Response interceptor for better error handling
+api.interceptors.response.use(
+    (response) => {
+        console.log('API Response:', response.config.url, response.status);
+        return response;
+    },
+    (error) => {
+        console.error('API Error:', error.config?.url, error.message);
+        if (error.response) {
+            console.error('Response data:', error.response.data);
+            console.error('Response status:', error.response.status);
+        } else if (error.request) {
+            console.error('No response received:', error.request);
+        }
+        return Promise.reject(error);
+    }
+);
+
 export const UserAPI = {
     login: async (googleToken: string) => {
-        const res = await api.post('/auth/login', { token: googleToken });
-        return res.data;
+        console.log('Calling login API with token length:', googleToken?.length);
+        try {
+            const res = await api.post('/auth/login', { token: googleToken });
+            console.log('Login successful:', res.data);
+            return res.data;
+        } catch (error: any) {
+            console.error('Login API failed:', error);
+            throw error;
+        }
     },
     getStats: async () => (await api.get('/stats')).data,
     getQueue: async () => (await api.get('/queue')).data,

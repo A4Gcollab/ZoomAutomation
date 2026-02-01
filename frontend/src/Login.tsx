@@ -8,6 +8,7 @@ export default function Login() {
     const [error, setError] = useState<string | null>(null);
 
     const handleSuccess = async (credentialResponse: CredentialResponse) => {
+        console.log('=== LOGIN FLOW START ===');
         console.log('Google Login Success:', credentialResponse);
         setIsLoading(true);
         setError(null);
@@ -18,22 +19,45 @@ export default function Login() {
                 throw new Error('No credential received from Google');
             }
 
-            console.log('Sending token to backend...');
-            const data = await UserAPI.login(token);
-            console.log('Backend response:', data);
+            console.log('Token received, length:', token.length);
+            console.log('Calling backend API...');
+
+            // Add a timeout wrapper
+            const loginPromise = UserAPI.login(token);
+            const timeoutPromise = new Promise((_, reject) =>
+                setTimeout(() => reject(new Error('Login request timed out after 30 seconds')), 30000)
+            );
+
+            const data = await Promise.race([loginPromise, timeoutPromise]) as any;
+            console.log('Backend response received:', data);
 
             // Store the token and user data
             localStorage.setItem('vong_token', data.token || token);
             localStorage.setItem('user_data', JSON.stringify(data.user));
 
+            console.log('Data stored in localStorage');
             console.log('Navigating to dashboard...');
+
             // Force navigation
             window.location.href = '/dashboard';
         } catch (error: any) {
-            console.error('Login error:', error);
-            const errorMsg = error.response?.data?.detail || error.message || 'Login failed. Please try again.';
+            console.error('=== LOGIN ERROR ===');
+            console.error('Error object:', error);
+
+            let errorMsg = 'Login failed. ';
+
+            if (error.code === 'ECONNABORTED' || error.message?.includes('timeout')) {
+                errorMsg += 'Request timed out. Is the backend running?';
+            } else if (error.response) {
+                errorMsg += error.response.data?.detail || `Server error: ${error.response.status}`;
+            } else if (error.request) {
+                errorMsg += 'Cannot connect to server. Make sure backend is running on port 8000.';
+            } else {
+                errorMsg += error.message || 'Unknown error occurred.';
+            }
+
             setError(errorMsg);
-            alert(errorMsg);
+            console.error('Final error message:', errorMsg);
         } finally {
             setIsLoading(false);
         }

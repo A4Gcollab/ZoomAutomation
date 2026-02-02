@@ -1,0 +1,27 @@
+version: '3.8'
+
+services:
+  backend:
+    build: .
+    container_name: vong_backend
+    restart: unless-stopped
+    command: uvicorn src.api:app --host 0.0.0.0 --port 8000
+    volumes:
+      - ./secrets:/app/secrets
+      - ./data:/app/data
+      - ./downloads:/app/downloads
+    env_file:
+      - .env
+    environment:
+      - TZ=${TZ:-Asia/Kolkata}
+    ports:
+      - "8000:8000"
+  # Frontend service (Placeholder until React init)
+  # frontend:
+  #   build: ./frontend
+  #   container_name: vong_frontend
+  #   restart: unless-stopped
+  #   ports:
+  #     - "3000:80"
+  #   depends_on:
+  #     - backend

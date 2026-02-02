@@ -77,7 +77,12 @@ class BackgroundService(threading.Thread):
         # Drive
         try:
             logger.info("  Initializing Drive client...")
-            self.drive = DriveClient(config.DRIVE_TOKEN_PATH, config.DRIVE_CLIENT_SECRET_PATH)
+            # Use shared client_secret for both YouTube and Drive
+            self.drive = DriveClient(
+                auth_mode='user', 
+                token_path=config.DRIVE_TOKEN_PATH, 
+                client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH
+            )
             logger.info("  ✅ Drive client ready")
         except Exception as e:
             logger.error(f"  ❌ Drive client failed: {e}")
@@ -89,7 +94,8 @@ class BackgroundService(threading.Thread):
             logger.info("  Initializing Zoom clients...")
             for i, creds in enumerate(config.ZOOM_ACCOUNTS, 1):
                 name = f"Zoom Account {i}"
-                self.zoom_clients[name] = ZoomClient(creds['account_id'], creds['client_id'], creds['client_secret'])
+                # Pass the whole credentials dict
+                self.zoom_clients[name] = ZoomClient(creds)
             logger.info(f"  ✅ {len(self.zoom_clients)} Zoom client(s) ready")
         except Exception as e:
             logger.error(f"  ❌ Zoom clients failed: {e}")

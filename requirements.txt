@@ -10,3 +10,8 @@ fastapi
 uvicorn
 python-multipart
 websockets
+slowapi
+aiofiles
+httpx
+prometheus-client
+psutil

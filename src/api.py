@@ -1,5 +1,5 @@
 
-from fastapi import FastAPI, HTTPException, Header, Depends, Body
+from fastapi import FastAPI, HTTPException, Header, Depends, Body, WebSocket, WebSocketDisconnect, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from typing import Optional, List
 import logging
@@ -7,9 +7,16 @@ from src.db_sql import db
 from src.auth import verify_google_token
 from src import config
 from contextlib import asynccontextmanager
-from typing import Optional, List
 import os
 from src.main import BackgroundService
+from datetime import datetime
+import time
+import psutil
+
+# Import new modules
+from src.websocket_manager import manager as ws_manager
+from src.metrics import get_metrics, api_requests, api_latency, recordings_processed, active_websockets, background_service_status
+from src.cache import cache
 
 log_file = config.DATA_DIR / "app.log"
 bg_service: Optional[BackgroundService] = None
@@ -42,9 +49,11 @@ async def lifespan(app: FastAPI):
             logger.info(f"   Thread ID: {bg_service.ident}")
             logger.info(f"   Daemon: {bg_service.daemon}")
             logger.info(f"   Running: {bg_service.running}")
+            background_service_status.set(1)
         else:
             logger.error("❌ Background Service Thread FAILED to start!")
             logger.error("   Thread is not alive after start() call")
+            background_service_status.set(0)
             
     except Exception as e:
         logger.error("=" * 60)
@@ -53,6 +62,7 @@ async def lifespan(app: FastAPI):
         import traceback
         logger.error(f"Traceback:\n{traceback.format_exc()}")
         logger.error("=" * 60)
+        background_service_status.set(0)
         
     yield
     
@@ -61,17 +71,54 @@ async def lifespan(app: FastAPI):
     if bg_service:
         bg_service.running = False
         logger.info("Background Service stop signal sent")
+        background_service_status.set(0)
 
-app = FastAPI(title="VONG Automation V2", lifespan=lifespan)
+app = FastAPI(
+    title="YTZ Automation API",
+    description="""
+    ## 🎥 YouTube-Zoom Automation System
+    
+    Automate Zoom recording management with YouTube compression and Google Drive backup.
+    
+    ### Features:
+    * 🔐 Google OAuth Authentication
+    * 📊 Real-time Dashboard Updates via WebSocket
+    * 🎬 Zoom Recording Management
+    * ☁️ Google Drive Integration
+    * 📺 YouTube Upload & Compression
+    * 🔄 Background Service Control
+    * 📝 Comprehensive Logging
+    
+    ### Authentication:
+    Most endpoints require authentication via `X-Token` header.
+    """,
+    version="2.0.0",
+    lifespan=lifespan,
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 # CORS (Allow Frontend)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["*"],  # Update this with your frontend URL in production
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Metrics Middleware
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start_time = time.time()
+    response = await call_next(request)
+    duration = time.time() - start_time
+    
+    # Track metrics
+    api_requests.labels(endpoint=request.url.path, method=request.method).inc()
+    api_latency.labels(endpoint=request.url.path).observe(duration)
+    
+    return response
 
 # --- DEPENDENCIES ---
 def get_current_user(x_token: str = Header(...)):
@@ -91,7 +138,83 @@ def require_admin(user: dict = Depends(get_current_user)):
 
 @app.get("/health")
 def health():
-    return {"status": "ok"}
+    return {"status": "ok", "timestamp": datetime.now().isoformat()}
+
+@app.get("/health/detailed")
+def detailed_health():
+    """Detailed system health check"""
+    try:
+        # Database check
+        db_healthy = True
+        try:
+            db.get_stats()
+        except Exception as e:
+            db_healthy = False
+            logger.error(f"Database health check failed: {e}")
+        
+        # Background service check
+        service_healthy = bg_service is not None and bg_service.is_alive()
+        
+        # Disk space check
+        disk = psutil.disk_usage('/')
+        disk_healthy = disk.percent < 90
+        
+        # Memory check
+        memory = psutil.virtual_memory()
+        memory_healthy = memory.percent < 90
+        
+        overall_status = "healthy" if all([
+            db_healthy, service_healthy, disk_healthy, memory_healthy
+        ]) else "degraded"
+        
+        return {
+            "status": overall_status,
+            "timestamp": datetime.now().isoformat(),
+            "checks": {
+                "database": "ok" if db_healthy else "error",
+                "background_service": "ok" if service_healthy else "error",
+                "disk_space": {
+                    "status": "ok" if disk_healthy else "warning",
+                    "used_percent": round(disk.percent, 2),
+                    "free_gb": round(disk.free / (1024**3), 2)
+                },
+                "memory": {
+                    "status": "ok" if memory_healthy else "warning",
+                    "used_percent": round(memory.percent, 2),
+                    "available_gb": round(memory.available / (1024**3), 2)
+                }
+            }
+        }
+    except Exception as e:
+        logger.error(f"Health check error: {e}")
+        return {
+            "status": "error",
+            "error": str(e),
+            "timestamp": datetime.now().isoformat()
+        }
+
+@app.get("/metrics")
+def metrics():
+    """Prometheus metrics endpoint"""
+    from prometheus_client import CONTENT_TYPE_LATEST
+    return Response(content=get_metrics(), media_type=CONTENT_TYPE_LATEST)
+
+# WebSocket endpoint
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive and handle incoming messages
+            data = await websocket.receive_text()
+            # Echo back or handle commands
+            await websocket.send_json({"type": "pong", "message": "Connection alive"})
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}")
+        ws_manager.disconnect(websocket)
+
 
 @app.post("/auth/login")
 def login(token_data: dict = Body(...)):
@@ -104,7 +227,18 @@ def login(token_data: dict = Body(...)):
 
 @app.get("/stats")
 def get_stats(user: dict = Depends(get_current_user)):
-    return db.get_stats()
+    # Check cache first
+    cached_stats = cache.get("stats")
+    if cached_stats:
+        return cached_stats
+    
+    # Fetch from DB
+    stats = db.get_stats()
+    
+    # Cache for 30 seconds
+    cache.set("stats", stats, ttl_seconds=30)
+    
+    return stats
 
 @app.get("/queue")
 def get_queue(user: dict = Depends(get_current_user)):
@@ -119,7 +253,7 @@ def get_options(user: dict = Depends(get_current_user)):
     return db.get_options()
 
 @app.post("/approve/{zoom_id}")
-def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict = Depends(get_current_user)):
+async def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict = Depends(get_current_user)):
     team = payload.get("team")
     playlist = payload.get("playlist")
     
@@ -132,6 +266,21 @@ def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict = Depe
         "status": "APPROVED",
         "approved_by": user['email']
     })
+    
+    # Invalidate cache
+    cache.delete("stats")
+    cache.delete("queue")
+    
+    # Broadcast update to all connected clients
+    await ws_manager.broadcast({
+        "type": "recording_approved",
+        "zoom_id": zoom_id,
+        "approved_by": user['email'],
+        "team": team,
+        "playlist": playlist,
+        "timestamp": datetime.now().isoformat()
+    })
+    
     return {"status": "Approved"}
 
 @app.get("/logs")

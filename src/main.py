@@ -125,7 +125,7 @@ class BackgroundService(threading.Thread):
                 return cell.row
             return None
         except Exception as e:
-            logger.warning(f\"Failed to find sheet row for {zoom_id}: {e}\")
+            logger.warning(f"Failed to find sheet row for {zoom_id}: {e}")
             return None
 
     def _resolve_team_playlist(self, meeting_id):
@@ -190,6 +190,7 @@ class BackgroundService(threading.Thread):
         logger.info(f"Found {len(tasks)} approved tasks to process")
         
         for task in tasks:
+            task = dict(task)  # Convert Row to dict
             zoom_id = task['zoom_id']
             topic = task['topic']
             start_time = task['start_time']

@@ -1,0 +1,21 @@
+[Unit]
+Description=YTZ Automation Main Processing Service
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+WorkingDirectory=/home/user/ytz-automation
+Environment="PATH=/home/user/ytz-automation/venv/bin"
+ExecStart=/home/user/ytz-automation/venv/bin/python main.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

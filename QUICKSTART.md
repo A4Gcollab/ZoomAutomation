@@ -1,4 +1,4 @@
-# YTZ Automation - Quick Start Guide
+ YTZ Automation - Quick Start Guide
 
 ## 🚀 Quick Start (Windows)
 

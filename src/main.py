@@ -34,6 +34,9 @@ class BackgroundService(threading.Thread):
         cycle_count = 0
         while self.running:
             try:
+                # 0. ENSURE CLIENTS ARE ACTIVE (Self-Healing)
+                self._init_clients()
+                
                 cycle_count += 1
                 logger.info(f"\n{'='*60}")
                 logger.info(f"📊 Service Cycle #{cycle_count} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -47,9 +50,19 @@ class BackgroundService(threading.Thread):
                 logger.info("Phase 2: Processing approved tasks...")
                 self._process_queue()
                 
+                # 3. CLEANUP (Delayed Zoom Deletions)
+                logger.info("Phase 3: Checking for recordings ready for Zoom deletion...")
+                self._cleanup_zoom_recordings()
+                
+                # 4. SLEEP
                 # 3. SLEEP
                 logger.info(f"✅ Cycle #{cycle_count} complete. Sleeping 60s...")
-                time.sleep(60)
+                # Responsive sleep: check self.running every 1s
+                for _ in range(60):
+                    if not self.running:
+                        logger.info("🛑 Stop signal received during sleep. Exiting...")
+                        break
+                    time.sleep(1)
                 
             except Exception as e:
                 logger.error(f"❌ Service Loop Error in Cycle #{cycle_count}: {e}")
@@ -65,29 +78,28 @@ class BackgroundService(threading.Thread):
         logger.info("Initializing API clients...")
         
         # YouTube
-        try:
-            logger.info("  Initializing YouTube client...")
-            self.youtube = YouTubeClient(config.YOUTUBE_CLIENT_SECRET_PATH, config.YOUTUBE_TOKEN_PATH)
-            logger.info("  ✅ YouTube client ready")
-        except Exception as e:
-            logger.error(f"  ❌ YouTube client failed: {e}")
-            logger.warning("  Service will continue but YouTube uploads will fail")
-            self.youtube = None
+        if not self.youtube:
+            try:
+                logger.info("  Initializing YouTube client...")
+                self.youtube = YouTubeClient(config.YOUTUBE_CLIENT_SECRET_PATH, config.YOUTUBE_TOKEN_PATH)
+                logger.info("  ✅ YouTube client ready")
+            except Exception as e:
+                logger.error(f"  ❌ YouTube client failed: {e}")
+                self.youtube = None
         
         # Drive
-        try:
-            logger.info("  Initializing Drive client...")
-            # Use shared client_secret for both YouTube and Drive
-            self.drive = DriveClient(
-                auth_mode='user', 
-                token_path=config.DRIVE_TOKEN_PATH, 
-                client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH
-            )
-            logger.info("  ✅ Drive client ready")
-        except Exception as e:
-            logger.error(f"  ❌ Drive client failed: {e}")
-            logger.warning("  Service will continue but Drive backups will fail")
-            self.drive = None
+        if not self.drive:
+            try:
+                logger.info("  Initializing Drive client...")
+                self.drive = DriveClient(
+                    auth_mode='user', 
+                    token_path=config.DRIVE_TOKEN_PATH, 
+                    client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH
+                )
+                logger.info("  ✅ Drive client ready")
+            except Exception as e:
+                logger.error(f"  ❌ Drive client failed: {e}")
+                self.drive = None
         
         # Zoom Clients
         try:
@@ -102,22 +114,20 @@ class BackgroundService(threading.Thread):
             logger.warning("  Service will continue but Zoom scanning will fail")
         
         # Google Sheets
-        try:
-            logger.info("  Initializing Google Sheets client...")
-            from src.sheets_integration import SheetManager
-            import gspread
-            from google.oauth2.service_account import Credentials
-            
-            # Use service account for sheets
-            scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
-            creds = Credentials.from_service_account_file(config.DRIVE_SERVICE_ACCOUNT_FILE, scopes=scopes)
-            gc = gspread.authorize(creds)
-            self.sheets = SheetManager(creds, config.GOOGLE_SHEET_ID)
-            logger.info("  ✅ Google Sheets client ready")
-        except Exception as e:
-            logger.error(f"  ❌ Google Sheets client failed: {e}")
-            logger.warning("  Service will continue but Sheets updates will fail")
-            self.sheets = None
+        if not self.sheets:
+            try:
+                logger.info("  Initializing Google Sheets client...")
+                from src.sheets_integration import SheetManager
+                import gspread
+                from google.oauth2.service_account import Credentials
+                
+                scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
+                creds = Credentials.from_service_account_file(config.DRIVE_SERVICE_ACCOUNT_FILE, scopes=scopes)
+                self.sheets = SheetManager(creds, config.GOOGLE_SHEET_ID)
+                logger.info("  ✅ Google Sheets client ready")
+            except Exception as e:
+                logger.error(f"  ❌ Google Sheets client failed: {e}")
+                self.sheets = None
 
     def _find_sheet_row(self, zoom_id):
         """Find the row index in Google Sheets for a given zoom_id."""
@@ -155,17 +165,40 @@ class BackgroundService(threading.Thread):
             pass
         return None, None
 
+    def _get_drive_folders(self, playlist_name):
+        """Get Drive folder IDs for a given playlist name."""
+        import json
+        from src.config import PLAYLIST_CONFIG_PATH
+        
+        if not PLAYLIST_CONFIG_PATH.exists():
+            return None, None
+            
+        try:
+            with open(PLAYLIST_CONFIG_PATH, 'r') as f:
+                data = json.load(f)
+                
+                for pl in data.get('playlists', []):
+                    if pl.get('playlist_name') == playlist_name:
+                        return pl.get('drive_folder_id'), pl.get('transcript_folder_id')
+        except Exception as e:
+            logger.error(f"Failed to get drive folders: {e}")
+        return None, None
+
     def _scan_zoom(self):
         logger.info("Scanning Zoom...")
         now = datetime.now()
-        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+        # Scan last 90 days to ensure we don't miss anything
+        start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
         today = now.strftime("%Y-%m-%d")
         
         count = 0
         for name, client in self.zoom_clients.items():
             try:
+                user_count = 0
                 for user in client.get_all_users():
-                    recs = client.get_user_recordings(user['id'], yesterday, today)
+                    user_count += 1
+                    recs = client.get_user_recordings(user['id'], start_date, today)
+                    logger.info(f"   Scan {name}: User {user.get('email')} -> {len(recs)} recordings found")
                     for r in recs:
                         r['account_name'] = name
                         
@@ -178,6 +211,14 @@ class BackgroundService(threading.Thread):
                             count += 1
                             if team:
                                 logger.info(f"Auto-Matched {r['id']} -> {team} / {playlist}")
+                            
+                            # Add to Google Sheets
+                            if self.sheets:
+                                try:
+                                    self.sheets.add_recording(r)
+                                    logger.info(f"Added {r['id']} to Sheets")
+                                except Exception as e:
+                                    logger.error(f"Failed to add to sheets: {e}")
             except Exception as e:
                 logger.error(f"Zoom Scan Error ({name}): {e}")
 
@@ -304,10 +345,19 @@ class BackgroundService(threading.Thread):
                 
                 # 3. UPLOAD to Drive (Backup)
                 logger.info(f"   📤 Uploading to Drive...")
-                drive_folder_id = self.drive.get_or_create_folder(team)
-                drive_video_id = self.drive.upload_file(video_path, drive_folder_id)
+                
+                # Get exact Drive folder IDs from playlist configuration
+                drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
+                
+                if not drive_folder_id or not transcript_folder_id:
+                    raise Exception(f"Drive folder IDs not found for playlist: {playlist}. Check config/playlists.json")
+                
+                logger.info(f"   Using Drive folders - Video: {drive_folder_id}, Transcript: {transcript_folder_id}")
+                
+                # Upload video to recording folder
+                drive_video_id = self.drive.upload_file(video_path, video_filename, drive_folder_id)
                 drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
-                logger.info(f"   ✅ Drive: {drive_url}")
+                logger.info(f"   ✅ Drive Video: {drive_url}")
                 
                 # Update sheets with Drive URL
                 if self.sheets and sheet_row:
@@ -317,19 +367,62 @@ class BackgroundService(threading.Thread):
                     except Exception as e:
                         logger.warning(f"   ⚠️  Sheets update failed: {e}")
                 
-                # Upload transcript to Drive
+                # Upload transcript to transcript folder
                 if os.path.exists(transcript_path):
-                    self.drive.upload_file(transcript_path, drive_folder_id)
-                    logger.info(f"   ✅ Transcript backed up to Drive")
+                    drive_transcript_id = self.drive.upload_file(transcript_path, transcript_filename, transcript_folder_id)
+                    logger.info(f"   ✅ Transcript backed up to Drive: https://drive.google.com/file/d/{drive_transcript_id}/view")
                 
-                # 4. CLEANUP local files
+                # 4. VERIFY UPLOADS (Critical Safety Check)
+                logger.info(f"   🔍 Verifying uploads...")
+                youtube_verified = False
+                drive_verified = False
+                
+                try:
+                    # Verify YouTube
+                    yt_status = self.youtube.get_video_status(video_id)
+                    if yt_status in ['uploaded', 'processed']:
+                        youtube_verified = True
+                        logger.info(f"   ✅ YouTube upload verified: {yt_status}")
+                    else:
+                        raise Exception(f"YouTube video status: {yt_status}")
+                except Exception as e:
+                    logger.error(f"   ❌ YouTube verification failed: {e}")
+                
+                try:
+                    # Verify Drive (check if file exists)
+                    if drive_video_id:
+                        drive_verified = True
+                        logger.info(f"   ✅ Drive upload verified")
+                except Exception as e:
+                    logger.error(f"   ❌ Drive verification failed: {e}")
+                
+                
+                # 5. MARK FOR DELAYED DELETION (24-hour safety period)
+                # Instead of deleting immediately, we mark when it's safe to delete
+                if youtube_verified and drive_verified:
+                    from datetime import timedelta
+                    deletion_ready_time = datetime.now() + timedelta(hours=config.DELETE_DELAY_HOURS)
+                    logger.info(f"   ⏰ Zoom deletion scheduled for: {deletion_ready_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    logger.info(f"   ℹ️  Will verify uploads and delete after {config.DELETE_DELAY_HOURS} hour safety period")
+                    
+                    # Store the deletion ready timestamp
+                    db.update_recording(zoom_id, {
+                        "deletion_ready_at": deletion_ready_time.isoformat(),
+                        "zoom_deletion_status": "PENDING"
+                    })
+                else:
+                    logger.warning(f"   ⚠️  Uploads not fully verified - Zoom deletion will NOT be scheduled")
+                    logger.warning(f"      YouTube verified: {youtube_verified}, Drive verified: {drive_verified}")
+
+                
+                # 6. CLEANUP local files
                 if os.path.exists(video_path):
                     os.remove(video_path)
                 if os.path.exists(transcript_path):
                     os.remove(transcript_path)
                 logger.info(f"   🗑️  Local files cleaned up")
                 
-                # 5. UPDATE status
+                # 7. UPDATE status
                 db.update_recording(zoom_id, {
                     "status": "COMPLETED",
                     "youtube_url": youtube_url,
@@ -361,6 +454,105 @@ class BackgroundService(threading.Thread):
                         logger.info(f"   📊 Sheets updated: ERROR")
                     except Exception as sheet_err:
                         logger.warning(f"   ⚠️  Sheets error update failed: {sheet_err}")
+
+    def _cleanup_zoom_recordings(self):
+        """Check for completed recordings that are ready for Zoom deletion after safety period."""
+        try:
+            cur = db.conn.cursor()
+            # Find recordings that are:
+            # 1. Status = COMPLETED
+            # 2. Have deletion_ready_at timestamp
+            # 3. deletion_ready_at is in the past
+            # 4. zoom_deletion_status is PENDING (not already deleted)
+            cur.execute("""
+                SELECT * FROM recordings 
+                WHERE status = 'COMPLETED' 
+                AND deletion_ready_at IS NOT NULL 
+                AND deletion_ready_at <= ? 
+                AND (zoom_deletion_status IS NULL OR zoom_deletion_status = 'PENDING')
+            """, (datetime.now().isoformat(),))
+            
+            ready_for_deletion = cur.fetchall()
+            
+            if not ready_for_deletion:
+                logger.info("   No recordings ready for Zoom deletion")
+                return
+            
+            logger.info(f"   Found {len(ready_for_deletion)} recording(s) ready for Zoom deletion")
+            
+            for task in ready_for_deletion:
+                task = dict(task)
+                zoom_id = task['zoom_id']
+                topic = task['topic']
+                youtube_url = task.get('youtube_url')
+                drive_url = task.get('drive_url')
+                account_name = task.get('account_name', 'Zoom Account 1')
+                deletion_ready_at = task.get('deletion_ready_at')
+                
+                logger.info(f"   🔍 Verifying {zoom_id} - {topic}")
+                logger.info(f"      Scheduled for deletion at: {deletion_ready_at}")
+                
+                # Get the Zoom client for this account
+                zoom_client = self.zoom_clients.get(account_name)
+                if not zoom_client:
+                    logger.error(f"      ❌ Zoom client not found for account: {account_name}")
+                    continue
+                
+                # RE-VERIFY uploads before deletion (extra safety)
+                youtube_still_exists = False
+                drive_still_exists = False
+                
+                if youtube_url and self.youtube:
+                    try:
+                        # Extract video ID from URL
+                        video_id = youtube_url.split('/')[-1]
+                        yt_status = self.youtube.get_video_status(video_id)
+                        if yt_status in ['uploaded', 'processed']:
+                            youtube_still_exists = True
+                            logger.info(f"      ✅ YouTube verified: {yt_status}")
+                        else:
+                            logger.warning(f"      ⚠️  YouTube status unexpected: {yt_status}")
+                    except Exception as e:
+                        logger.error(f"      ❌ YouTube re-verification failed: {e}")
+                
+                if drive_url:
+                    # If we have a Drive URL, assume it exists (Drive doesn't delete files automatically)
+                    drive_still_exists = True
+                    logger.info(f"      ✅ Drive URL present: {drive_url}")
+                
+                # Only delete if BOTH uploads are still verified
+                if youtube_still_exists and drive_still_exists:
+                    try:
+                        logger.info(f"      🗑️  Deleting from Zoom...")
+                        if zoom_client.delete_recording(zoom_id, action="delete"):
+                            logger.info(f"      ✅ Zoom recording deleted successfully")
+                            db.update_recording(zoom_id, {
+                                "zoom_deletion_status": "DELETED",
+                                "zoom_deleted_at": datetime.now().isoformat()
+                            })
+                            db.add_log("INFO", f"🗑️  Deleted from Zoom: {zoom_id} - {topic}")
+                        else:
+                            logger.warning(f"      ⚠️  Zoom deletion returned False")
+                            db.update_recording(zoom_id, {"zoom_deletion_status": "FAILED"})
+                    except Exception as e:
+                        logger.error(f"      ❌ Zoom deletion failed: {e}")
+                        db.update_recording(zoom_id, {
+                            "zoom_deletion_status": "FAILED",
+                            "zoom_deletion_error": str(e)
+                        })
+                else:
+                    logger.error(f"      ❌ SAFETY CHECK FAILED - Not deleting from Zoom")
+                    logger.error(f"         YouTube exists: {youtube_still_exists}, Drive exists: {drive_still_exists}")
+                    db.update_recording(zoom_id, {
+                        "zoom_deletion_status": "VERIFICATION_FAILED",
+                        "zoom_deletion_error": f"YT:{youtube_still_exists}, Drive:{drive_still_exists}"
+                    })
+                    
+        except Exception as e:
+            logger.error(f"   ❌ Cleanup phase error: {e}")
+            import traceback
+            logger.error(f"   Traceback:\n{traceback.format_exc()}")
+
 
 # Initializer for fastAPI to call
 service = BackgroundService()

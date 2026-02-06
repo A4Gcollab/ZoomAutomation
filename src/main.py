@@ -130,19 +130,8 @@ class BackgroundService(threading.Thread):
                 self.sheets = None
 
     def _find_sheet_row(self, zoom_id):
-        """Find the row index in Google Sheets for a given zoom_id."""
-        try:
-            if not self.sheets or not self.sheets.main_tab:
-                return None
-            
-            # Get all values from column B (Meeting ID column)
-            cell = self.sheets.main_tab.find(zoom_id)
-            if cell:
-                return cell.row
-            return None
-        except Exception as e:
-            logger.warning(f"Failed to find sheet row for {zoom_id}: {e}")
-            return None
+        """Legacy method - no longer needed with simplified sheets."""
+        return None  # Simplified sheets don't use row tracking
 
     def _resolve_team_playlist(self, meeting_id):
         """Match Meeting ID to Config."""
@@ -169,20 +158,39 @@ class BackgroundService(threading.Thread):
         """Get Drive folder IDs for a given playlist name."""
         import json
         from src.config import PLAYLIST_CONFIG_PATH
-        
+
         if not PLAYLIST_CONFIG_PATH.exists():
             return None, None
-            
+
         try:
             with open(PLAYLIST_CONFIG_PATH, 'r') as f:
                 data = json.load(f)
-                
+
                 for pl in data.get('playlists', []):
                     if pl.get('playlist_name') == playlist_name:
                         return pl.get('drive_folder_id'), pl.get('transcript_folder_id')
         except Exception as e:
             logger.error(f"Failed to get drive folders: {e}")
         return None, None
+
+    def _get_playlist_id(self, playlist_name):
+        """Get YouTube playlist ID from playlist name."""
+        import json
+        from src.config import PLAYLIST_CONFIG_PATH
+
+        if not PLAYLIST_CONFIG_PATH.exists():
+            return None
+
+        try:
+            with open(PLAYLIST_CONFIG_PATH, 'r') as f:
+                data = json.load(f)
+
+                for pl in data.get('playlists', []):
+                    if pl.get('playlist_name') == playlist_name:
+                        return pl.get('playlist_id')
+        except Exception as e:
+            logger.error(f"Failed to get playlist ID: {e}")
+        return None
 
     def _scan_zoom(self):
         logger.info("Scanning Zoom...")
@@ -248,17 +256,12 @@ class BackgroundService(threading.Thread):
             logger.info(f"▶️  Processing: {zoom_id} - {topic}")
             db.update_recording(zoom_id, {"status": "PROCESSING"})
             
-            # Update sheets status to PROCESSING
-            sheet_row = None # Initialize sheet_row here
+            # Log to sheets
             if self.sheets:
                 try:
-                    # Find the row for this zoom_id
-                    sheet_row = self._find_sheet_row(zoom_id)
-                    if sheet_row:
-                        self.sheets.update_row_status(sheet_row, "PROCESSING")
-                        logger.info(f"   📊 Sheets updated: PROCESSING")
+                    self.sheets.log(action="Processing Started", details=f"ID: {zoom_id}, Topic: {topic}", status="PROCESSING")
                 except Exception as e:
-                    logger.warning(f"   ⚠️  Sheets update failed: {e}")
+                    logger.warning(f"   ⚠️  Sheets log failed: {e}")
             
             try:
                 # Generate proper names with date format
@@ -280,7 +283,7 @@ class BackgroundService(threading.Thread):
                 transcript_path = os.path.join(DOWNLOAD_DIR, transcript_filename)
                 
                 # Download video and transcript
-                recording_data = zoom_client.get_recording_details(zoom_id)
+                recording_data = zoom_client.get_meeting_recordings(zoom_id)
                 video_url = None
                 transcript_url = None
                 
@@ -315,13 +318,12 @@ class BackgroundService(threading.Thread):
                 youtube_url = f"https://youtu.be/{video_id}"
                 logger.info(f"   ✅ YouTube: {youtube_url}")
                 
-                # Update sheets with YouTube URL
-                if self.sheets and sheet_row:
+                # Log YouTube upload to sheets
+                if self.sheets:
                     try:
-                        self.sheets.update_row_status(sheet_row, "PROCESSING", youtube_url=youtube_url)
-                        logger.info(f"   📊 Sheets updated: YouTube URL")
+                        self.sheets.log_youtube_upload(zoom_id, youtube_url)
                     except Exception as e:
-                        logger.warning(f"   ⚠️  Sheets update failed: {e}")
+                        logger.warning(f"   ⚠️  Sheets log failed: {e}")
                 
                 # Upload captions if transcript exists
                 if transcript_url and os.path.exists(transcript_path):
@@ -336,10 +338,14 @@ class BackgroundService(threading.Thread):
                     except Exception as e:
                         logger.warning(f"   ⚠️  Caption upload failed: {e}")
                 
-                # Add to playlist
+                # Add to playlist (lookup ID from name)
                 try:
-                    self.youtube.add_to_playlist(video_id, playlist)
-                    logger.info(f"   ✅ Added to playlist: {playlist}")
+                    playlist_id = self._get_playlist_id(playlist)
+                    if playlist_id:
+                        self.youtube.add_to_playlist(video_id, playlist_id)
+                        logger.info(f"   ✅ Added to playlist: {playlist} (ID: {playlist_id})")
+                    else:
+                        logger.warning(f"   ⚠️  Playlist ID not found for: {playlist}")
                 except Exception as e:
                     logger.warning(f"   ⚠️  Playlist add failed: {e}")
                 
@@ -359,13 +365,12 @@ class BackgroundService(threading.Thread):
                 drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
                 logger.info(f"   ✅ Drive Video: {drive_url}")
                 
-                # Update sheets with Drive URL
-                if self.sheets and sheet_row:
+                # Log Drive upload to sheets
+                if self.sheets:
                     try:
-                        self.sheets.update_row_status(sheet_row, "PROCESSING", youtube_url=youtube_url, drive_url=drive_url)
-                        logger.info(f"   📊 Sheets updated: Drive URL")
+                        self.sheets.log_drive_upload(zoom_id, drive_url)
                     except Exception as e:
-                        logger.warning(f"   ⚠️  Sheets update failed: {e}")
+                        logger.warning(f"   ⚠️  Sheets log failed: {e}")
                 
                 # Upload transcript to transcript folder
                 if os.path.exists(transcript_path):
@@ -432,13 +437,12 @@ class BackgroundService(threading.Thread):
                 db.add_log("INFO", f"✅ Completed: {zoom_id} - {youtube_title}")
                 logger.info(f"   ✅ COMPLETED: {zoom_id}")
                 
-                # Final sheets update: COMPLETED
-                if self.sheets and sheet_row:
+                # Log completion to sheets
+                if self.sheets:
                     try:
-                        self.sheets.update_row_status(sheet_row, "COMPLETED", youtube_url=youtube_url, drive_url=drive_url)
-                        logger.info(f"   📊 Sheets updated: COMPLETED")
+                        self.sheets.log_completion(zoom_id, topic, youtube_url, drive_url)
                     except Exception as e:
-                        logger.warning(f"   ⚠️  Sheets update failed: {e}")
+                        logger.warning(f"   ⚠️  Sheets log failed: {e}")
                 
             except Exception as e:
                 logger.error(f"   ❌ Processing Failed {zoom_id}: {e}")
@@ -447,13 +451,12 @@ class BackgroundService(threading.Thread):
                 db.update_recording(zoom_id, {"status": "ERROR", "error_message": str(e)})
                 db.add_log("ERROR", f"Failed {zoom_id}: {e}")
                 
-                # Update sheets: ERROR
-                if self.sheets and 'sheet_row' in locals():
+                # Log error to sheets
+                if self.sheets:
                     try:
-                        self.sheets.update_row_status(sheet_row, "ERROR")
-                        logger.info(f"   📊 Sheets updated: ERROR")
+                        self.sheets.log_error("Processing Failed", str(e), zoom_id)
                     except Exception as sheet_err:
-                        logger.warning(f"   ⚠️  Sheets error update failed: {sheet_err}")
+                        logger.warning(f"   ⚠️  Sheets error log failed: {sheet_err}")
 
     def _cleanup_zoom_recordings(self):
         """Check for completed recordings that are ready for Zoom deletion after safety period."""

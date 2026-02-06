@@ -8,9 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Link2, PlusCircle, Trash2 } from "lucide-react";
 
 const linkedChannels = [
-  { id: 'UC-lHJZR3Gqxm24_Vd_AJ5Yw', name: 'Google for Developers', subscribers: '2.3M', status: 'Linked' },
-  { id: 'UC_x5XG1OV2P6uZZ5FSM9Ttw', name: 'Firebase', subscribers: '450K', status: 'Linked' },
-  { id: 'UCwKTF2k2a8Gv5D2jL8n9v-w', name: 'Flutter', subscribers: '700K', status: 'Linked' },
+  { id: 'UCrxNv_iH_WVtlt3NaA-NZxw', name: 'YTZ Automation Channel', subscribers: '-', status: 'Linked' },
 ];
 
 

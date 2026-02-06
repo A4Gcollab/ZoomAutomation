@@ -16,7 +16,7 @@ class Database:
 
     def _init_db(self):
         cur = self.conn.cursor()
-        
+
         # Recordings Table
         cur.execute('''
         CREATE TABLE IF NOT EXISTS recordings (
@@ -34,10 +34,17 @@ class Database:
             youtube_url TEXT,
             drive_url TEXT,
             metadata JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            processed_at TIMESTAMP,
+            deletion_ready_at TIMESTAMP,
+            zoom_deletion_status TEXT,
+            zoom_deleted_at TIMESTAMP,
+            zoom_deletion_error TEXT,
+            error_message TEXT,
+            duration TEXT
         )
         ''')
-        
+
         # Logs Table (for persistent history)
         cur.execute('''
         CREATE TABLE IF NOT EXISTS system_logs (
@@ -47,7 +54,25 @@ class Database:
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
         ''')
-        
+
+        # Add missing columns to existing tables (migration for existing databases)
+        migration_columns = [
+            ("recordings", "processed_at", "TIMESTAMP"),
+            ("recordings", "deletion_ready_at", "TIMESTAMP"),
+            ("recordings", "zoom_deletion_status", "TEXT"),
+            ("recordings", "zoom_deleted_at", "TIMESTAMP"),
+            ("recordings", "zoom_deletion_error", "TEXT"),
+            ("recordings", "error_message", "TEXT"),
+            ("recordings", "duration", "TEXT"),
+        ]
+
+        for table, column, col_type in migration_columns:
+            try:
+                cur.execute(f"ALTER TABLE {table} ADD COLUMN {column} {col_type}")
+                logger.info(f"Added column {column} to {table}")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
+
         self.conn.commit()
 
     def add_recording(self, zoom_id, data):

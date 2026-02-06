@@ -21,8 +21,15 @@ from src.cache import cache
 log_file = config.DATA_DIR / "app.log"
 bg_service: Optional[BackgroundService] = None
 
-# Logging - must be before lifespan
-logging.basicConfig(level=logging.INFO)
+# Setup file logging to capture all logs
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+        logging.FileHandler(log_file, mode='a', encoding='utf-8')  # File output
+    ]
+)
 logger = logging.getLogger("API")
 
 @asynccontextmanager
@@ -98,13 +105,34 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS (Allow Frontend)
+# CORS Configuration
+# Get allowed origins from environment or use defaults
+CORS_ORIGINS = os.getenv("CORS_ORIGINS", "").split(",") if os.getenv("CORS_ORIGINS") else []
+if not CORS_ORIGINS:
+    # Default origins for development and production
+    CORS_ORIGINS = [
+        "http://localhost:3000",
+        "http://localhost:3001",
+        "http://127.0.0.1:3000",
+        "http://139.84.133.1:3000",
+        "http://139.84.133.1:9002",
+        "http://za.omysha.org",
+        "https://za.omysha.org",
+        "https://ytz.omysha.com",
+        "https://ytz-automation.vercel.app",
+    ]
+    # In development, also allow all origins for easier testing
+    if config.ENVIRONMENT == "development":
+        CORS_ORIGINS.append("*")
+
+logger.info(f"CORS Origins configured: {CORS_ORIGINS}")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Update this with your frontend URL in production
+    allow_origins=CORS_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Token", "Authorization"],
 )
 
 # Metrics Middleware

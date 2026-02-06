@@ -101,6 +101,11 @@ export function UserProvider({ children }: { children: ReactNode }) {
         try {
             const result = await signInWithPopup(auth, provider);
             if (result.user) {
+                // Get and store the token immediately before redirect
+                const token = await result.user.getIdToken();
+                localStorage.setItem('auth_token', token);
+                console.log("Auth: Token saved after Google sign in");
+
                 await setUserProfile(firestore, result.user);
                 setUser(result.user);
                 router.push('/');
@@ -112,13 +117,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
     };
 
     const signInWithEmail = async (email: string, password: string) => {
-        return signInWithEmailAndPassword(auth, email, password);
+        const userCredential = await signInWithEmailAndPassword(auth, email, password);
+        // Get and store the token immediately after sign in
+        if (userCredential.user) {
+            const token = await userCredential.user.getIdToken();
+            localStorage.setItem('auth_token', token);
+            console.log("Auth: Token saved after email sign in");
+            setUser(userCredential.user);
+        }
+        return userCredential;
     }
 
     const signUpWithEmail = async (email: string, password: string, displayName: string) => {
         const userCredential = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(userCredential.user, { displayName });
         await setUserProfile(firestore, userCredential.user, { displayName });
+        // Get and store the token immediately after sign up
+        if (userCredential.user) {
+            const token = await userCredential.user.getIdToken();
+            localStorage.setItem('auth_token', token);
+            console.log("Auth: Token saved after email sign up");
+            setUser(userCredential.user);
+        }
         return userCredential;
     }
 

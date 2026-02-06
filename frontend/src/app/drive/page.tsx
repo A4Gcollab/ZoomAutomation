@@ -5,12 +5,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Folder, PlusCircle, Trash2 } from "lucide-react";
+import { ExternalLink, Folder, PlusCircle, Trash2 } from "lucide-react";
 
 const linkedFolders = [
-    { id: '1', name: 'All-Hands Recordings', linkedAt: '2023-10-26', status: 'Active' },
-    { id: '2', name: 'Engineering Demos', linkedAt: '2023-10-26', status: 'Active' },
-    { id: '3', name: 'Marketing Presentations', linkedAt: '2023-11-01', status: 'Active' },
+    { id: '1qalNa2vYt5JXnw7XOy8GeTGZnveP0-s5', name: 'Recordings Folder 1', linkedAt: '2026-02-05', status: 'Active' },
+    { id: '16B8FVZ28pUH77ehka-0iuyLgDeEaQZN4', name: 'Recordings Folder 2', linkedAt: '2026-02-05', status: 'Active' },
 ];
 
 export default function DrivePage() {
@@ -55,6 +54,11 @@ export default function DrivePage() {
                                 <TableCell>{new Date(folder.linkedAt).toLocaleDateString()}</TableCell>
                                 <TableCell><Badge className="bg-chart-2 text-white">{folder.status}</Badge></TableCell>
                                 <TableCell className="text-right">
+                                    <Button variant="ghost" size="icon" asChild>
+                                        <a href={`https://drive.google.com/drive/folders/${folder.id}`} target="_blank" rel="noopener noreferrer">
+                                            <ExternalLink className="h-4 w-4" />
+                                        </a>
+                                    </Button>
                                     <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
                                         <Trash2 className="h-4 w-4" />
                                     </Button>

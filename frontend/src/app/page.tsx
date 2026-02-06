@@ -8,6 +8,7 @@ import { CompletedHistory } from "@/components/dashboard/completed-history";
 import { ErrorLogs } from "@/components/dashboard/error-logs";
 import { PendingQueue } from "@/components/dashboard/pending-queue";
 import { ServiceControl } from "@/components/dashboard/service-control";
+import { LiveConsole } from "@/components/dashboard/live-console";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Home() {
@@ -72,6 +73,9 @@ export default function Home() {
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Floating Live Console */}
+      <LiveConsole />
     </DashboardLayout>
   );
 }

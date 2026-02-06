@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUser } from '@/firebase/auth/use-user';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -12,54 +12,76 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
+  const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
   const router = useRouter();
   const { toast } = useToast();
 
+  // All hooks must be called before any conditional returns
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [signupName, setSignupName] = useState('');
   const [signupEmail, setSignupEmail] = useState('');
   const [signupPassword, setSignupPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [localLoading, setLocalLoading] = useState(false);
+
+  // If user is already logged in, redirect to dashboard
+  useEffect(() => {
+    if (!loading && user) {
+      router.push('/');
+    }
+  }, [user, loading, router]);
 
   const handleGoogleSignIn = async () => {
-    setLoading(true);
+    setLocalLoading(true);
     try {
       await signInWithGoogle();
-      // The redirect happens via signInWithRedirect, 
-      // and the useUser hook will handle the redirect after auth completes
-      // No need to set loading to false as page will redirect
+      // Redirect is handled in signInWithGoogle after token is saved
     } catch (error: any) {
       console.error('Google sign-in error:', error);
       toast({ variant: 'destructive', title: 'Sign-in failed', description: error.message });
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
 
   const handleEmailLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setLocalLoading(true);
     try {
       await signInWithEmail(loginEmail, loginPassword);
+      // Token is now saved in signInWithEmail, small delay to ensure state updates
+      await new Promise(resolve => setTimeout(resolve, 100));
       router.push('/');
     } catch (error: any) {
-      toast({ variant: 'destructive', title: 'Sign-in failed', description: 'Please check your email and password.' });
-      setLoading(false);
+      console.error('Email login error:', error);
+      toast({ variant: 'destructive', title: 'Sign-in failed', description: error.message || 'Please check your email and password.' });
+      setLocalLoading(false);
     }
   };
 
   const handleEmailSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
-    setLoading(true);
+    setLocalLoading(true);
     try {
       await signUpWithEmail(signupEmail, signupPassword, signupName);
+      // Token is now saved in signUpWithEmail, small delay to ensure state updates
+      await new Promise(resolve => setTimeout(resolve, 100));
       router.push('/');
     } catch (error: any) {
+      console.error('Email signup error:', error);
       toast({ variant: 'destructive', title: 'Sign-up failed', description: error.message });
-      setLoading(false);
+      setLocalLoading(false);
     }
   };
+
+  // Show loading while checking auth state or if user is logged in (redirecting)
+  if (loading || user) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background">
+        <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background">
@@ -94,8 +116,8 @@ export default function LoginPage() {
                     <Label htmlFor="login-password">Password</Label>
                     <Input id="login-password" type="password" required value={loginPassword} onChange={e => setLoginPassword(e.target.value)} />
                   </div>
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button type="submit" className="w-full" disabled={localLoading}>
+                    {localLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
                     Sign In
                   </Button>
                 </form>
@@ -107,7 +129,7 @@ export default function LoginPage() {
                     <span className="bg-card px-2 text-muted-foreground">Or continue with</span>
                   </div>
                 </div>
-                <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} disabled={loading}>
+                <Button variant="outline" className="w-full" onClick={handleGoogleSignIn} disabled={localLoading}>
                   <Icons.google className="mr-2 h-4 w-4" />
                   Google
                 </Button>
@@ -134,8 +156,8 @@ export default function LoginPage() {
                     <Label htmlFor="signup-password">Password</Label>
                     <Input id="signup-password" type="password" required minLength={6} value={signupPassword} onChange={e => setSignupPassword(e.target.value)} />
                   </div>
-                  <Button type="submit" className="w-full" disabled={loading}>
-                    {loading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
+                  <Button type="submit" className="w-full" disabled={localLoading}>
+                    {localLoading && <Icons.spinner className="mr-2 h-4 w-4 animate-spin" />}
                     Create Account
                   </Button>
                 </form>

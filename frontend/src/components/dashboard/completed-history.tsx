@@ -78,8 +78,10 @@ export function CompletedHistory() {
         const mappedHistory = Array.isArray(history) ? history.map((item: any) => ({
           ...item,
           id: item.zoom_id || item.id, // Handle backend using zoom_id
-          processedAt: item.created_at || item.date_str || new Date().toISOString(), // Ensure valid date
-          approvedBy: item.approved_by || item.approvedBy || 'System'
+          processedAt: item.processed_at || item.created_at || item.date_str || new Date().toISOString(),
+          approvedBy: item.approved_by || item.approvedBy || 'System',
+          youtubeUrl: item.youtube_url || item.youtubeUrl,
+          driveUrl: item.drive_url || item.driveUrl
         })) : [];
 
         setData(mappedHistory);

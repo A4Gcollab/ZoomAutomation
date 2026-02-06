@@ -78,22 +78,27 @@ class SheetManager:
             return []
 
     def add_recording(self, rec):
-        """Add a new recording to the Main sheet."""
+        """Add a new recording to the Main sheet.
+
+        Uses UUID as the unique identifier (truncated to 20 chars for readability).
+        """
         if not self.main_tab:
             return False
 
-        zoom_id = str(rec.get('id', ''))
-        existing_ids = self.get_existing_ids()
+        # Use UUID as the unique ID, truncated for readability
+        uuid = str(rec.get('uuid', rec.get('id', '')))
+        display_id = uuid[:20] if len(uuid) > 20 else uuid
 
-        if zoom_id in existing_ids:
-            logger.debug(f"Recording {zoom_id} already exists in sheet")
+        existing_ids = self.get_existing_ids()
+        if display_id in existing_ids:
+            logger.debug(f"Recording {display_id} already exists in sheet")
             return False
 
         try:
             date_str = rec.get('start_time', '')[:10] if rec.get('start_time') else ''
             row = [
                 date_str,                      # Date
-                zoom_id,                       # Meeting ID
+                display_id,                    # UUID (truncated)
                 rec.get('topic', ''),          # Title
                 rec.get('team', ''),           # Team
                 rec.get('playlist', ''),       # Playlist
@@ -103,7 +108,7 @@ class SheetManager:
                 ""                             # Drive Folder
             ]
             self.main_tab.append_row(row)
-            logger.info(f"Added recording {zoom_id} to Main sheet")
+            logger.info(f"Added recording {display_id} to Main sheet")
             return True
         except Exception as e:
             logger.error(f"Failed to add recording to sheet: {e}")

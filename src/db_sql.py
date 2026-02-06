@@ -17,10 +17,12 @@ class Database:
     def _init_db(self):
         cur = self.conn.cursor()
 
-        # Recordings Table
+        # Recordings Table - zoom_id is now UUID (unique per recording instance)
+        # meeting_id stores the meeting ID (same for recurring meetings)
         cur.execute('''
         CREATE TABLE IF NOT EXISTS recordings (
             zoom_id TEXT PRIMARY KEY,
+            meeting_id TEXT,
             account_name TEXT,
             topic TEXT,
             start_time TEXT,
@@ -57,6 +59,7 @@ class Database:
 
         # Add missing columns to existing tables (migration for existing databases)
         migration_columns = [
+            ("recordings", "meeting_id", "TEXT"),  # For recurring meetings
             ("recordings", "processed_at", "TIMESTAMP"),
             ("recordings", "deletion_ready_at", "TIMESTAMP"),
             ("recordings", "zoom_deletion_status", "TEXT"),
@@ -76,7 +79,11 @@ class Database:
         self.conn.commit()
 
     def add_recording(self, zoom_id, data):
-        """Insert or Ignore new recording."""
+        """Insert or Ignore new recording.
+
+        zoom_id: Should be the UUID (unique per recording instance)
+        data: Recording metadata from Zoom API
+        """
         try:
             cur = self.conn.cursor()
             # extract basic fields
@@ -84,12 +91,13 @@ class Database:
             start_time = data.get('start_time', '')
             date_str = start_time[:10] if start_time else ''
             acc_name = data.get('account_name', '')
-            
+            meeting_id = str(data.get('id', ''))  # The meeting ID (same for recurring)
+
             cur.execute('''
-                INSERT OR IGNORE INTO recordings 
-                (zoom_id, account_name, topic, start_time, date_str, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (zoom_id, acc_name, topic, start_time, date_str, json.dumps(data)))
+                INSERT OR IGNORE INTO recordings
+                (zoom_id, meeting_id, account_name, topic, start_time, date_str, metadata)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (zoom_id, meeting_id, acc_name, topic, start_time, date_str, json.dumps(data)))
             self.conn.commit()
             return cur.rowcount > 0 # True if inserted
         except Exception as e:

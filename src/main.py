@@ -209,22 +209,26 @@ class BackgroundService(threading.Thread):
                     logger.info(f"   Scan {name}: User {user.get('email')} -> {len(recs)} recordings found")
                     for r in recs:
                         r['account_name'] = name
-                        
-                        # AUTO-RESOLVE
+
+                        # Use UUID as unique identifier (unique per recording instance)
+                        # Meeting ID (r['id']) is the same for recurring meetings
+                        uuid = r.get('uuid', str(r['id']))
+
+                        # AUTO-RESOLVE using meeting ID (for recurring meeting mapping)
                         team, playlist = self._resolve_team_playlist(r['id'])
                         if team: r['team'] = team
                         if playlist: r['playlist'] = playlist
-                        
-                        if db.add_recording(str(r['id']), r):
+
+                        if db.add_recording(uuid, r):
                             count += 1
+                            logger.info(f"   ✅ New recording: {r.get('topic', '?')[:40]} (UUID: {uuid[:20]}...)")
                             if team:
-                                logger.info(f"Auto-Matched {r['id']} -> {team} / {playlist}")
-                            
+                                logger.info(f"      Auto-Matched -> {team} / {playlist}")
+
                             # Add to Google Sheets
                             if self.sheets:
                                 try:
                                     self.sheets.add_recording(r)
-                                    logger.info(f"Added {r['id']} to Sheets")
                                 except Exception as e:
                                     logger.error(f"Failed to add to sheets: {e}")
             except Exception as e:
@@ -246,14 +250,15 @@ class BackgroundService(threading.Thread):
         
         for task in tasks:
             task = dict(task)  # Convert Row to dict
-            zoom_id = task['zoom_id']
+            zoom_id = task['zoom_id']  # This is now UUID (unique per recording)
+            meeting_id = task.get('meeting_id', zoom_id)  # Fall back to zoom_id for old records
             topic = task['topic']
             start_time = task['start_time']
             team = task.get('team', 'Unknown')
             playlist = task.get('playlist', 'General')
             account_name = task.get('account_name', 'Zoom Account 1')
-            
-            logger.info(f"▶️  Processing: {zoom_id} - {topic}")
+
+            logger.info(f"▶️  Processing: {topic} (UUID: {zoom_id[:20] if len(zoom_id) > 20 else zoom_id}...)")
             db.update_recording(zoom_id, {"status": "PROCESSING"})
             
             # Log to sheets
@@ -281,12 +286,26 @@ class BackgroundService(threading.Thread):
                 logger.info(f"   📥 Downloading from Zoom...")
                 video_path = os.path.join(DOWNLOAD_DIR, video_filename)
                 transcript_path = os.path.join(DOWNLOAD_DIR, transcript_filename)
-                
-                # Download video and transcript
-                recording_data = zoom_client.get_meeting_recordings(zoom_id)
+
+                # Get recording data from stored metadata or fetch from API
+                import json
+                stored_metadata = task.get('metadata')
+                if stored_metadata:
+                    try:
+                        recording_data = json.loads(stored_metadata) if isinstance(stored_metadata, str) else stored_metadata
+                    except:
+                        recording_data = None
+
+                # If no valid metadata, fetch from Zoom API using UUID
+                if not recording_data or 'recording_files' not in recording_data:
+                    # Use double-encoded UUID for API call (Zoom requires this)
+                    import urllib.parse
+                    encoded_uuid = urllib.parse.quote(urllib.parse.quote(zoom_id, safe=''), safe='')
+                    recording_data = zoom_client.get_meeting_recordings(encoded_uuid)
+
                 video_url = None
                 transcript_url = None
-                
+
                 for file in recording_data.get('recording_files', []):
                     if file.get('file_type') == 'MP4':
                         video_url = file.get('download_url')

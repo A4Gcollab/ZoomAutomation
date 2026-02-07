@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useUser } from '@/firebase/auth/use-user';
 import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -12,11 +12,11 @@ import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
 
 export default function LoginPage() {
-  const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
+  const { user, loading, initialized, signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
   const router = useRouter();
   const { toast } = useToast();
+  const hasRedirected = useRef(false);
 
-  // All hooks must be called before any conditional returns
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
   const [signupName, setSignupName] = useState('');
@@ -24,20 +24,19 @@ export default function LoginPage() {
   const [signupPassword, setSignupPassword] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
 
-  // If user is already logged in, redirect to dashboard
+  // If user is already logged in, redirect to dashboard (only once)
   useEffect(() => {
-    if (!loading && user) {
-      router.push('/');
+    if (initialized && !loading && user && !hasRedirected.current) {
+      hasRedirected.current = true;
+      router.replace('/');
     }
-  }, [user, loading, router]);
+  }, [user, loading, initialized, router]);
 
   const handleGoogleSignIn = async () => {
     setLocalLoading(true);
     try {
       await signInWithGoogle();
-      // Redirect is handled in signInWithGoogle after token is saved
     } catch (error: any) {
-      console.error('Google sign-in error:', error);
       toast({ variant: 'destructive', title: 'Sign-in failed', description: error.message });
       setLocalLoading(false);
     }
@@ -48,11 +47,8 @@ export default function LoginPage() {
     setLocalLoading(true);
     try {
       await signInWithEmail(loginEmail, loginPassword);
-      // Token is now saved in signInWithEmail, small delay to ensure state updates
-      await new Promise(resolve => setTimeout(resolve, 100));
       router.push('/');
     } catch (error: any) {
-      console.error('Email login error:', error);
       toast({ variant: 'destructive', title: 'Sign-in failed', description: error.message || 'Please check your email and password.' });
       setLocalLoading(false);
     }
@@ -63,22 +59,21 @@ export default function LoginPage() {
     setLocalLoading(true);
     try {
       await signUpWithEmail(signupEmail, signupPassword, signupName);
-      // Token is now saved in signUpWithEmail, small delay to ensure state updates
-      await new Promise(resolve => setTimeout(resolve, 100));
       router.push('/');
     } catch (error: any) {
-      console.error('Email signup error:', error);
       toast({ variant: 'destructive', title: 'Sign-up failed', description: error.message });
       setLocalLoading(false);
     }
   };
 
-  // Show loading while checking auth state or if user is logged in (redirecting)
-  if (loading || user) {
+  // Show loading while auth is initializing or user is logged in (redirecting)
+  if (!initialized || loading || user) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background">
         <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
+        <p className="mt-4 text-sm text-muted-foreground">
+          {user ? 'Redirecting to dashboard...' : 'Loading...'}
+        </p>
       </div>
     );
   }

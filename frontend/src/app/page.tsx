@@ -2,7 +2,7 @@
 
 import { useUser } from "@/firebase/auth/use-user";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import DashboardLayout from "@/components/dashboard-layout";
 import { CompletedHistory } from "@/components/dashboard/completed-history";
 import { ErrorLogs } from "@/components/dashboard/error-logs";
@@ -12,18 +12,20 @@ import { LiveConsole } from "@/components/dashboard/live-console";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Home() {
-  const { user, loading } = useUser();
+  const { user, loading, initialized } = useUser();
   const router = useRouter();
+  const hasRedirected = useRef(false);
 
   useEffect(() => {
-    // Redirect to login if not authenticated (after loading completes)
-    if (!loading && !user) {
+    // Only redirect once after auth is fully initialized
+    if (initialized && !loading && !user && !hasRedirected.current) {
+      hasRedirected.current = true;
       router.replace('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, initialized, router]);
 
-  // Show loading spinner while checking auth
-  if (loading) {
+  // Show loading while auth is initializing
+  if (!initialized || loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
@@ -32,11 +34,12 @@ export default function Home() {
     );
   }
 
-  // Not authenticated - show brief loading while redirect happens
+  // Not authenticated - show loading while redirecting
   if (!user) {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground text-sm">Redirecting...</p>
       </div>
     );
   }

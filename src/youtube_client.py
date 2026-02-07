@@ -99,6 +99,37 @@ class YouTubeClient:
         if not response['items']:
             return None
         return response['items'][0]['status']['uploadStatus']
+
+    def verify_video_exists(self, video_id):
+        """
+        Verify that a video exists and is accessible on YouTube.
+
+        Returns:
+            dict with 'exists', 'status', 'title' or None if error
+        """
+        try:
+            if not video_id:
+                return {'exists': False, 'error': 'No video ID provided'}
+
+            request = self.youtube.videos().list(
+                part="snippet,status",
+                id=video_id
+            )
+            response = request.execute()
+
+            if not response.get('items'):
+                return {'exists': False, 'error': 'Video not found'}
+
+            item = response['items'][0]
+            return {
+                'exists': True,
+                'status': item['status']['uploadStatus'],
+                'privacy': item['status'].get('privacyStatus', 'unknown'),
+                'title': item['snippet']['title']
+            }
+        except Exception as e:
+            self.logger.error(f"Failed to verify video {video_id}: {e}")
+            return {'exists': False, 'error': str(e)}
     
     @retry_with_backoff(retries=3, initial_delay=2)
     def add_to_playlist(self, video_id, playlist_id):

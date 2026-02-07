@@ -1,16 +1,14 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
-    signInWithRedirect,
     signInWithPopup,
     signOut as firebaseSignOut,
     createUserWithEmailAndPassword,
     signInWithEmailAndPassword,
     updateProfile,
-    getRedirectResult,
     type User
 } from 'firebase/auth';
 import { useAuth, useFirestore } from '@/firebase/provider';
@@ -28,152 +26,115 @@ type UserContextType = {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
-// Maximum time to wait for auth state (prevents infinite loading)
-const AUTH_TIMEOUT_MS = 5000;
-
-const setUserProfile = async (firestore: any, user: User, additionalData: any = {}) => {
-    if (!user) return;
-    try {
-        const userRef = doc(firestore, `users/${user.uid}`);
-        const snapshot = await getDoc(userRef);
-
-        if (!snapshot.exists()) {
-            const { displayName, email, photoURL } = user;
-            const createdAt = new Date();
-            await setDoc(userRef, {
-                uid: user.uid,
-                displayName,
-                email,
-                photoURL,
-                createdAt,
-                ...additionalData,
-            });
-        }
-    } catch (error) {
-        console.error("Error creating user document (non-blocking):", error);
-        // Don't throw - profile creation is non-blocking
-    }
-};
-
 export function UserProvider({ children }: { children: ReactNode }) {
     const auth = useAuth();
     const firestore = useFirestore();
     const router = useRouter();
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
-    const authInitialized = useRef(false);
-    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    // Save token to localStorage
+    const saveToken = useCallback(async (firebaseUser: User) => {
+        try {
+            const token = await firebaseUser.getIdToken(true);
+            localStorage.setItem('auth_token', token);
+            return token;
+        } catch (error) {
+            console.error("Failed to get token:", error);
+            return null;
+        }
+    }, []);
+
+    // Create user profile in Firestore (non-blocking)
+    const ensureProfile = useCallback(async (firebaseUser: User) => {
+        try {
+            const userRef = doc(firestore, `users/${firebaseUser.uid}`);
+            const snapshot = await getDoc(userRef);
+            if (!snapshot.exists()) {
+                await setDoc(userRef, {
+                    uid: firebaseUser.uid,
+                    displayName: firebaseUser.displayName,
+                    email: firebaseUser.email,
+                    photoURL: firebaseUser.photoURL,
+                    createdAt: new Date(),
+                });
+            }
+        } catch (error) {
+            console.error("Profile creation error (non-blocking):", error);
+        }
+    }, [firestore]);
 
     useEffect(() => {
-        // Set a timeout to ensure loading doesn't hang forever
-        timeoutRef.current = setTimeout(() => {
-            if (loading && !authInitialized.current) {
-                console.warn("Auth: Timeout reached, forcing loading to false");
-                setLoading(false);
-            }
-        }, AUTH_TIMEOUT_MS);
+        console.log("Auth: Setting up listener");
 
-        // Use onIdTokenChanged to handle token refreshes automatically
-        const unsubscribe = auth.onIdTokenChanged(async (user) => {
-            authInitialized.current = true;
+        // Single source of truth: onAuthStateChanged
+        const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+            console.log("Auth: State changed -", firebaseUser ? `user: ${firebaseUser.email}` : "no user");
 
-            // Clear the timeout since we got a response
-            if (timeoutRef.current) {
-                clearTimeout(timeoutRef.current);
-                timeoutRef.current = null;
-            }
-
-            if (user) {
-                try {
-                    const token = await user.getIdToken();
-                    console.log("Auth: Got fresh ID token", token.substring(0, 10) + "...");
-                    localStorage.setItem('auth_token', token);
-                    console.log("Auth: Saved token into localStorage");
-
-                    // Set user immediately, profile creation happens in background
-                    setUser(user);
-                    setLoading(false);
-
-                    // Profile creation is non-blocking
-                    setUserProfile(firestore, user).catch(console.error);
-                } catch (error) {
-                    console.error("Error getting token:", error);
-                    setUser(null);
-                    setLoading(false);
-                }
+            if (firebaseUser) {
+                // User is signed in
+                await saveToken(firebaseUser);
+                setUser(firebaseUser);
+                ensureProfile(firebaseUser); // Fire and forget
             } else {
+                // User is signed out
                 localStorage.removeItem('auth_token');
                 setUser(null);
-                setLoading(false);
+            }
+
+            setLoading(false);
+        });
+
+        return () => unsubscribe();
+    }, [auth, saveToken, ensureProfile]);
+
+    // Token refresh handler
+    useEffect(() => {
+        if (!user) return;
+
+        const unsubscribe = auth.onIdTokenChanged(async (firebaseUser) => {
+            if (firebaseUser) {
+                await saveToken(firebaseUser);
             }
         });
 
-        // Handle redirect result if needed (though we use popup now)
-        getRedirectResult(auth).then(async (result) => {
-            if (result && result.user) {
-                // Token update handled by onIdTokenChanged above
-                router.push('/');
-            }
-        }).catch(console.error);
+        return () => unsubscribe();
+    }, [auth, user, saveToken]);
 
-        return () => {
-            unsubscribe();
-            if (timeoutRef.current) {
-                clearTimeout(timeoutRef.current);
-            }
-        };
-    }, [auth, firestore, router]);
-
-    const signInWithGoogle = async () => {
+    const signInWithGoogle = useCallback(async () => {
         const provider = new GoogleAuthProvider();
-        try {
-            const result = await signInWithPopup(auth, provider);
-            if (result.user) {
-                // Get and store the token immediately before redirect
-                const token = await result.user.getIdToken();
-                localStorage.setItem('auth_token', token);
-                console.log("Auth: Token saved after Google sign in");
-
-                await setUserProfile(firestore, result.user);
-                setUser(result.user);
-                router.push('/');
-            }
-        } catch (error) {
-            console.error('Google sign-in error:', error);
-            throw error;
+        const result = await signInWithPopup(auth, provider);
+        // onAuthStateChanged will handle the rest
+        if (result.user) {
+            await saveToken(result.user);
+            router.push('/');
         }
-    };
+    }, [auth, router, saveToken]);
 
-    const signInWithEmail = async (email: string, password: string) => {
-        const userCredential = await signInWithEmailAndPassword(auth, email, password);
-        // Get and store the token immediately after sign in
-        if (userCredential.user) {
-            const token = await userCredential.user.getIdToken();
-            localStorage.setItem('auth_token', token);
-            console.log("Auth: Token saved after email sign in");
-            setUser(userCredential.user);
+    const signInWithEmail = useCallback(async (email: string, password: string) => {
+        const result = await signInWithEmailAndPassword(auth, email, password);
+        // onAuthStateChanged will handle the rest
+        if (result.user) {
+            await saveToken(result.user);
         }
-        return userCredential;
-    }
+        return result;
+    }, [auth, saveToken]);
 
-    const signUpWithEmail = async (email: string, password: string, displayName: string) => {
-        const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-        await updateProfile(userCredential.user, { displayName });
-        await setUserProfile(firestore, userCredential.user, { displayName });
-        // Get and store the token immediately after sign up
-        if (userCredential.user) {
-            const token = await userCredential.user.getIdToken();
-            localStorage.setItem('auth_token', token);
-            console.log("Auth: Token saved after email sign up");
-            setUser(userCredential.user);
+    const signUpWithEmail = useCallback(async (email: string, password: string, displayName: string) => {
+        const result = await createUserWithEmailAndPassword(auth, email, password);
+        await updateProfile(result.user, { displayName });
+        // onAuthStateChanged will handle the rest
+        if (result.user) {
+            await saveToken(result.user);
         }
-        return userCredential;
-    }
+        return result;
+    }, [auth, saveToken]);
 
-    const signOut = async () => {
+    const signOut = useCallback(async () => {
+        localStorage.removeItem('auth_token');
         await firebaseSignOut(auth);
         router.push('/login');
-    };
+    }, [auth, router]);
 
     return (
         <UserContext.Provider value={{ user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut }}>

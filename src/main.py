@@ -535,7 +535,13 @@ class BackgroundService(threading.Thread):
                 pass
 
     def _cleanup_zoom_recordings(self):
-        """Check for completed recordings that are ready for Zoom deletion."""
+        """Check for completed recordings that are ready for Zoom deletion.
+
+        IMPORTANT: Only deletes from Zoom after verifying:
+        1. At least 24 hours have passed since completion
+        2. YouTube video exists and is accessible
+        3. Drive file exists and is not in trash
+        """
         try:
             cur = db.conn.cursor()
             cur.execute("""
@@ -552,33 +558,96 @@ class BackgroundService(threading.Thread):
                 logger.info("   No recordings ready for Zoom deletion")
                 return
 
-            logger.info(f"   Found {len(ready_for_deletion)} recording(s) ready for Zoom deletion")
+            logger.info(f"   Found {len(ready_for_deletion)} recording(s) ready for Zoom deletion verification")
 
             for task in ready_for_deletion:
                 task = dict(task)
                 zoom_id = task['zoom_id']
-                topic = task['topic']
+                topic = task['topic'][:40]
                 youtube_url = task.get('youtube_url')
                 drive_url = task.get('drive_url')
                 account_name = task.get('account_name', 'Zoom Account 1')
 
                 # Skip if no backups exist
                 if not youtube_url or not drive_url:
-                    logger.warning(f"   ⚠️ Skipping {zoom_id} - missing backup URLs")
+                    logger.warning(f"   ⚠️ Skipping {topic} - missing backup URLs")
+                    db.update_recording(zoom_id, {
+                        "zoom_deletion_status": "SKIPPED",
+                        "zoom_deletion_error": "Missing backup URLs"
+                    })
                     continue
 
+                # 1. VERIFY YOUTUBE VIDEO EXISTS
+                youtube_verified = False
+                try:
+                    # Extract video ID from URL (youtu.be/ID or youtube.com/watch?v=ID)
+                    video_id = None
+                    if 'youtu.be/' in youtube_url:
+                        video_id = youtube_url.split('youtu.be/')[-1].split('?')[0]
+                    elif 'v=' in youtube_url:
+                        video_id = youtube_url.split('v=')[-1].split('&')[0]
+
+                    if video_id and self.youtube:
+                        result = self.youtube.verify_video_exists(video_id)
+                        if result.get('exists'):
+                            logger.info(f"   ✅ YouTube verified: {result.get('title', 'N/A')[:30]}")
+                            youtube_verified = True
+                        else:
+                            logger.warning(f"   ⚠️ YouTube verification failed: {result.get('error')}")
+                    else:
+                        logger.warning(f"   ⚠️ Could not extract video ID from {youtube_url}")
+                except Exception as e:
+                    logger.error(f"   ❌ YouTube verification error: {e}")
+
+                # 2. VERIFY DRIVE FILE EXISTS
+                drive_verified = False
+                try:
+                    # Extract file ID from URL (drive.google.com/file/d/ID/view)
+                    file_id = None
+                    if '/file/d/' in drive_url:
+                        file_id = drive_url.split('/file/d/')[-1].split('/')[0]
+                    elif 'id=' in drive_url:
+                        file_id = drive_url.split('id=')[-1].split('&')[0]
+
+                    if file_id and self.drive:
+                        result = self.drive.verify_file_exists(file_id)
+                        if result.get('exists'):
+                            logger.info(f"   ✅ Drive verified: {result.get('name', 'N/A')[:30]}")
+                            drive_verified = True
+                        else:
+                            logger.warning(f"   ⚠️ Drive verification failed: {result.get('error')}")
+                    else:
+                        logger.warning(f"   ⚠️ Could not extract file ID from {drive_url}")
+                except Exception as e:
+                    logger.error(f"   ❌ Drive verification error: {e}")
+
+                # 3. ONLY DELETE IF BOTH VERIFIED
+                if not youtube_verified or not drive_verified:
+                    logger.warning(f"   ⚠️ Skipping Zoom deletion for {topic} - verification failed")
+                    logger.warning(f"      YouTube: {'✅' if youtube_verified else '❌'}, Drive: {'✅' if drive_verified else '❌'}")
+                    db.update_recording(zoom_id, {
+                        "zoom_deletion_status": "VERIFICATION_FAILED",
+                        "zoom_deletion_error": f"YT:{youtube_verified}, Drive:{drive_verified}"
+                    })
+                    continue
+
+                # Both verified - proceed with Zoom deletion
                 zoom_client = self.zoom_clients.get(account_name)
                 if not zoom_client:
+                    logger.warning(f"   ⚠️ Zoom client not found: {account_name}")
                     continue
 
                 try:
-                    logger.info(f"   🗑️ Deleting {topic[:30]}...")
+                    logger.info(f"   🗑️ Deleting from Zoom: {topic}...")
                     if zoom_client.delete_recording(zoom_id, action="delete"):
                         db.update_recording(zoom_id, {
                             "zoom_deletion_status": "DELETED",
-                            "zoom_deleted_at": datetime.now().isoformat()
+                            "zoom_deleted_at": datetime.now().isoformat(),
+                            "youtube_verified": True,
+                            "drive_verified": True
                         })
-                        logger.info(f"   ✅ Deleted from Zoom")
+                        logger.info(f"   ✅ Successfully deleted from Zoom (backups verified)")
+                        db.add_log("INFO", f"Deleted from Zoom: {topic} (verified)")
                 except Exception as e:
                     logger.error(f"   ❌ Zoom deletion failed: {e}")
                     db.update_recording(zoom_id, {

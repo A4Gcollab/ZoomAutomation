@@ -2,7 +2,7 @@
 
 import { useUser } from "@/firebase/auth/use-user";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import DashboardLayout from "@/components/dashboard-layout";
 import { CompletedHistory } from "@/components/dashboard/completed-history";
 import { ErrorLogs } from "@/components/dashboard/error-logs";
@@ -14,37 +14,34 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export default function Home() {
   const { user, loading } = useUser();
   const router = useRouter();
-  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
-    // Only redirect to login if we're done loading AND there's no user
-    // This prevents redirect loops when coming back from Google OAuth
-    if (!loading && !user && !redirecting) {
-      setRedirecting(true);
-      router.push('/login');
+    // Redirect to login if not authenticated (after loading completes)
+    if (!loading && !user) {
+      router.replace('/login');
     }
-  }, [user, loading, router, redirecting]);
+  }, [user, loading, router]);
 
-  // Show loading spinner while checking auth state or redirecting
-  if (loading || (!user && !redirecting)) {
+  // Show loading spinner while checking auth
+  if (loading) {
     return (
-      <div className="flex h-screen w-full items-center justify-center flex-col gap-4">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div>
+      <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
         <p className="text-muted-foreground text-sm">Loading...</p>
       </div>
     );
   }
 
-  // If redirecting to login
+  // Not authenticated - show brief loading while redirect happens
   if (!user) {
     return (
-      <div className="flex h-screen w-full items-center justify-center flex-col gap-4">
-        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div>
-        <p className="text-muted-foreground text-sm">Redirecting to login...</p>
+      <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
       </div>
     );
   }
 
+  // Authenticated - show dashboard
   return (
     <DashboardLayout>
       <div className="flex-1 space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-8">

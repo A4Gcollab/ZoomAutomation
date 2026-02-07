@@ -128,19 +128,19 @@ class DriveClient:
         try:
             # Get Remote Metadata
             remote_file = self.service.files().get(
-                fileId=file_id, 
-                fields="id, size, trashed", 
+                fileId=file_id,
+                fields="id, size, trashed",
                 supportsAllDrives=True
             ).execute()
-            
+
             if remote_file.get('trashed'):
                 self.logger.error("Verification Failed: Remote file is in trash.")
                 return False
-                
+
             remote_size = int(remote_file.get('size', 0))
             local_size = os.path.getsize(local_file_path)
-            
-            # Allow slight variance? No, exact match for binary identical, 
+
+            # Allow slight variance? No, exact match for binary identical,
             # but Drive might report different size? Usually exact for binary.
             if remote_size == local_size:
                 self.logger.info(f"Integrity Verified: Remote Size {remote_size} == Local Size {local_size}")
@@ -148,7 +148,41 @@ class DriveClient:
             else:
                 self.logger.error(f"Integrity Mismatch: Remote {remote_size} != Local {local_size}")
                 return False
-                
+
         except Exception as e:
             self.logger.error(f"Verification Check Failed: {e}")
             return False
+
+    def verify_file_exists(self, file_id):
+        """
+        Verify that a file exists on Drive and is accessible.
+
+        Args:
+            file_id: The Drive file ID to verify
+
+        Returns:
+            dict with 'exists', 'name', 'size' or error info
+        """
+        try:
+            if not file_id:
+                return {'exists': False, 'error': 'No file ID provided'}
+
+            remote_file = self.service.files().get(
+                fileId=file_id,
+                fields="id, name, size, trashed, mimeType",
+                supportsAllDrives=True
+            ).execute()
+
+            if remote_file.get('trashed'):
+                return {'exists': False, 'error': 'File is in trash'}
+
+            return {
+                'exists': True,
+                'name': remote_file.get('name'),
+                'size': int(remote_file.get('size', 0)),
+                'mimeType': remote_file.get('mimeType')
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to verify file {file_id}: {e}")
+            return {'exists': False, 'error': str(e)}

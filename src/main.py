@@ -15,6 +15,13 @@ from src.config import DOWNLOAD_DIR
 
 logger = logging.getLogger("BackgroundService")
 
+# Constants for resilience
+MAX_RETRIES = 3
+RETRY_DELAY_SECONDS = 30
+YOUTUBE_QUOTA_RESET_HOURS = 24
+ERROR_RECOVERY_INTERVAL_MINUTES = 30
+
+
 class BackgroundService(threading.Thread):
     def __init__(self):
         super().__init__()
@@ -23,104 +30,174 @@ class BackgroundService(threading.Thread):
         self.zoom_clients = {}
         self.youtube = None
         self.drive = None
-        self.sheets = None  # Google Sheets manager for status updates
-        
+        self.sheets = None
+        self.last_error_recovery = None
+        self.youtube_quota_exceeded_at = None  # Track when quota was hit
+
     def run(self):
         logger.info("=" * 60)
         logger.info("🚀 Background Service Thread RUNNING")
         logger.info("=" * 60)
         self._init_clients()
-        
+
         cycle_count = 0
         while self.running:
             try:
                 # 0. ENSURE CLIENTS ARE ACTIVE (Self-Healing)
                 self._init_clients()
-                
+
                 cycle_count += 1
                 logger.info(f"\n{'='*60}")
                 logger.info(f"📊 Service Cycle #{cycle_count} - {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
                 logger.info(f"{'='*60}")
-                
-                # 1. SCAN (Ingestion)
+
+                # 1. AUTO-RECOVERY: Reset ERROR/PROCESSING records periodically
+                self._auto_recover_stuck_records()
+
+                # 2. SCAN (Ingestion)
                 logger.info("Phase 1: Scanning Zoom for new recordings...")
                 self._scan_zoom()
-                
-                # 2. PROCESS (Approvals)
-                logger.info("Phase 2: Processing approved tasks...")
-                self._process_queue()
-                
-                # 3. CLEANUP (Delayed Zoom Deletions)
+
+                # 3. PROCESS (Approvals) - Skip if YouTube quota exceeded
+                if self._can_use_youtube():
+                    logger.info("Phase 2: Processing approved tasks...")
+                    self._process_queue()
+                else:
+                    logger.warning("Phase 2: SKIPPED - YouTube quota exceeded, waiting for reset...")
+
+                # 4. CLEANUP (Delayed Zoom Deletions)
                 logger.info("Phase 3: Checking for recordings ready for Zoom deletion...")
                 self._cleanup_zoom_recordings()
-                
-                # 4. SLEEP
-                # 3. SLEEP
+
+                # 5. SLEEP
                 logger.info(f"✅ Cycle #{cycle_count} complete. Sleeping 60s...")
-                # Responsive sleep: check self.running every 1s
                 for _ in range(60):
                     if not self.running:
                         logger.info("🛑 Stop signal received during sleep. Exiting...")
                         break
                     time.sleep(1)
-                
+
             except Exception as e:
                 logger.error(f"❌ Service Loop Error in Cycle #{cycle_count}: {e}")
                 import traceback
                 logger.error(f"Traceback:\n{traceback.format_exc()}")
                 db.add_log("ERROR", f"Service Loop Error: {e}")
                 time.sleep(60)
-        
+
         logger.info("Background Service Loop Ended (running=False)")
 
+    def _can_use_youtube(self):
+        """Check if YouTube API is available (not quota exceeded)."""
+        if not self.youtube_quota_exceeded_at:
+            return True
+
+        # Check if 24 hours have passed since quota was exceeded
+        hours_since = (datetime.now() - self.youtube_quota_exceeded_at).total_seconds() / 3600
+        if hours_since >= YOUTUBE_QUOTA_RESET_HOURS:
+            logger.info("YouTube quota reset period passed. Resuming YouTube operations.")
+            self.youtube_quota_exceeded_at = None
+            return True
+
+        remaining = YOUTUBE_QUOTA_RESET_HOURS - hours_since
+        logger.info(f"YouTube quota exceeded. {remaining:.1f} hours until reset.")
+        return False
+
+    def _auto_recover_stuck_records(self):
+        """Automatically recover records stuck in ERROR or PROCESSING status."""
+        try:
+            now = datetime.now()
+
+            # Only run recovery every 30 minutes
+            if self.last_error_recovery:
+                minutes_since = (now - self.last_error_recovery).total_seconds() / 60
+                if minutes_since < ERROR_RECOVERY_INTERVAL_MINUTES:
+                    return
+
+            self.last_error_recovery = now
+            cur = db.conn.cursor()
+
+            # 1. Reset ERROR records back to PENDING (so they can be re-approved)
+            cur.execute("""
+                UPDATE recordings
+                SET status = 'PENDING', error_message = NULL
+                WHERE status = 'ERROR'
+            """)
+            error_count = cur.rowcount
+
+            # 2. Reset PROCESSING records that have been stuck for > 1 hour
+            one_hour_ago = (now - timedelta(hours=1)).isoformat()
+            cur.execute("""
+                UPDATE recordings
+                SET status = 'PENDING'
+                WHERE status = 'PROCESSING'
+                AND (processed_at IS NULL OR processed_at < ?)
+            """, (one_hour_ago,))
+            stuck_count = cur.rowcount
+
+            db.conn.commit()
+
+            if error_count > 0 or stuck_count > 0:
+                logger.info(f"🔄 Auto-Recovery: Reset {error_count} ERROR and {stuck_count} stuck PROCESSING records to PENDING")
+                db.add_log("INFO", f"Auto-Recovery: Reset {error_count} ERROR, {stuck_count} stuck records")
+
+        except Exception as e:
+            logger.error(f"Auto-recovery failed: {e}")
+
     def _init_clients(self):
-        """Initialize API clients. Non-blocking - failures are logged but don't stop the service."""
+        """Initialize API clients with retry logic. Non-blocking - failures are logged but don't stop the service."""
         logger.info("Initializing API clients...")
-        
+
         # YouTube
         if not self.youtube:
-            try:
-                logger.info("  Initializing YouTube client...")
-                self.youtube = YouTubeClient(config.YOUTUBE_CLIENT_SECRET_PATH, config.YOUTUBE_TOKEN_PATH)
-                logger.info("  ✅ YouTube client ready")
-            except Exception as e:
-                logger.error(f"  ❌ YouTube client failed: {e}")
-                self.youtube = None
-        
+            for attempt in range(MAX_RETRIES):
+                try:
+                    logger.info("  Initializing YouTube client...")
+                    self.youtube = YouTubeClient(config.YOUTUBE_CLIENT_SECRET_PATH, config.YOUTUBE_TOKEN_PATH)
+                    logger.info("  ✅ YouTube client ready")
+                    break
+                except Exception as e:
+                    logger.error(f"  ❌ YouTube client failed (attempt {attempt+1}/{MAX_RETRIES}): {e}")
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(5)
+                    self.youtube = None
+
         # Drive
         if not self.drive:
-            try:
-                logger.info("  Initializing Drive client...")
-                self.drive = DriveClient(
-                    auth_mode='user', 
-                    token_path=config.DRIVE_TOKEN_PATH, 
-                    client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH
-                )
-                logger.info("  ✅ Drive client ready")
-            except Exception as e:
-                logger.error(f"  ❌ Drive client failed: {e}")
-                self.drive = None
-        
+            for attempt in range(MAX_RETRIES):
+                try:
+                    logger.info("  Initializing Drive client...")
+                    self.drive = DriveClient(
+                        auth_mode='user',
+                        token_path=config.DRIVE_TOKEN_PATH,
+                        client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH
+                    )
+                    logger.info("  ✅ Drive client ready")
+                    break
+                except Exception as e:
+                    logger.error(f"  ❌ Drive client failed (attempt {attempt+1}/{MAX_RETRIES}): {e}")
+                    if attempt < MAX_RETRIES - 1:
+                        time.sleep(5)
+                    self.drive = None
+
         # Zoom Clients
-        try:
-            logger.info("  Initializing Zoom clients...")
-            for i, creds in enumerate(config.ZOOM_ACCOUNTS, 1):
-                name = f"Zoom Account {i}"
-                # Pass the whole credentials dict
-                self.zoom_clients[name] = ZoomClient(creds)
-            logger.info(f"  ✅ {len(self.zoom_clients)} Zoom client(s) ready")
-        except Exception as e:
-            logger.error(f"  ❌ Zoom clients failed: {e}")
-            logger.warning("  Service will continue but Zoom scanning will fail")
-        
+        if not self.zoom_clients:
+            try:
+                logger.info("  Initializing Zoom clients...")
+                for i, creds in enumerate(config.ZOOM_ACCOUNTS, 1):
+                    name = f"Zoom Account {i}"
+                    self.zoom_clients[name] = ZoomClient(creds)
+                logger.info(f"  ✅ {len(self.zoom_clients)} Zoom client(s) ready")
+            except Exception as e:
+                logger.error(f"  ❌ Zoom clients failed: {e}")
+                logger.warning("  Service will continue but Zoom scanning will fail")
+
         # Google Sheets
         if not self.sheets:
             try:
                 logger.info("  Initializing Google Sheets client...")
                 from src.sheets_integration import SheetManager
-                import gspread
                 from google.oauth2.service_account import Credentials
-                
+
                 scopes = ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive']
                 creds = Credentials.from_service_account_file(config.DRIVE_SERVICE_ACCOUNT_FILE, scopes=scopes)
                 self.sheets = SheetManager(creds, config.GOOGLE_SHEET_ID)
@@ -129,25 +206,20 @@ class BackgroundService(threading.Thread):
                 logger.error(f"  ❌ Google Sheets client failed: {e}")
                 self.sheets = None
 
-    def _find_sheet_row(self, zoom_id):
-        """Legacy method - no longer needed with simplified sheets."""
-        return None  # Simplified sheets don't use row tracking
-
     def _resolve_team_playlist(self, meeting_id):
         """Match Meeting ID to Config."""
         import json
         from src.config import PLAYLIST_CONFIG_PATH
-        
+
         if not PLAYLIST_CONFIG_PATH.exists():
             return None, None
-            
+
         try:
             with open(PLAYLIST_CONFIG_PATH, 'r') as f:
                 data = json.load(f)
-                meeting_id = str(meeting_id) # Ensure string
-                
+                meeting_id = str(meeting_id)
+
                 for pl in data.get('playlists', []):
-                    # Check if ID is in the list
                     if meeting_id in pl.get('meeting_ids', []):
                         return pl.get('category'), pl.get('playlist_name')
         except Exception:
@@ -165,7 +237,6 @@ class BackgroundService(threading.Thread):
         try:
             with open(PLAYLIST_CONFIG_PATH, 'r') as f:
                 data = json.load(f)
-
                 for pl in data.get('playlists', []):
                     if pl.get('playlist_name') == playlist_name:
                         return pl.get('drive_folder_id'), pl.get('transcript_folder_id')
@@ -184,7 +255,6 @@ class BackgroundService(threading.Thread):
         try:
             with open(PLAYLIST_CONFIG_PATH, 'r') as f:
                 data = json.load(f)
-
                 for pl in data.get('playlists', []):
                     if pl.get('playlist_name') == playlist_name:
                         return pl.get('playlist_id')
@@ -193,315 +263,297 @@ class BackgroundService(threading.Thread):
         return None
 
     def _scan_zoom(self):
+        """Scan Zoom for new recordings with error handling."""
         logger.info("Scanning Zoom...")
         now = datetime.now()
-        # Scan last 90 days to ensure we don't miss anything
         start_date = (now - timedelta(days=90)).strftime("%Y-%m-%d")
         today = now.strftime("%Y-%m-%d")
-        
+
         count = 0
         for name, client in self.zoom_clients.items():
             try:
-                user_count = 0
                 for user in client.get_all_users():
-                    user_count += 1
-                    recs = client.get_user_recordings(user['id'], start_date, today)
-                    logger.info(f"   Scan {name}: User {user.get('email')} -> {len(recs)} recordings found")
-                    for r in recs:
-                        r['account_name'] = name
+                    try:
+                        recs = client.get_user_recordings(user['id'], start_date, today)
+                        logger.info(f"   Scan {name}: User {user.get('email')} -> {len(recs)} recordings found")
+                        for r in recs:
+                            try:
+                                r['account_name'] = name
+                                uuid = r.get('uuid', str(r['id']))
 
-                        # Use UUID as unique identifier (unique per recording instance)
-                        # Meeting ID (r['id']) is the same for recurring meetings
-                        uuid = r.get('uuid', str(r['id']))
+                                team, playlist = self._resolve_team_playlist(r['id'])
+                                if team: r['team'] = team
+                                if playlist: r['playlist'] = playlist
 
-                        # AUTO-RESOLVE using meeting ID (for recurring meeting mapping)
-                        team, playlist = self._resolve_team_playlist(r['id'])
-                        if team: r['team'] = team
-                        if playlist: r['playlist'] = playlist
+                                if db.add_recording(uuid, r):
+                                    count += 1
+                                    logger.info(f"   ✅ New: {r.get('topic', '?')[:40]}")
+                                    if team:
+                                        logger.info(f"      Auto-Matched -> {team} / {playlist}")
 
-                        if db.add_recording(uuid, r):
-                            count += 1
-                            logger.info(f"   ✅ New recording: {r.get('topic', '?')[:40]} (UUID: {uuid[:20]}...)")
-                            if team:
-                                logger.info(f"      Auto-Matched -> {team} / {playlist}")
-
-                            # Add to Google Sheets
-                            if self.sheets:
-                                try:
-                                    self.sheets.add_recording(r)
-                                except Exception as e:
-                                    logger.error(f"Failed to add to sheets: {e}")
+                                    if self.sheets:
+                                        try:
+                                            self.sheets.add_recording(r)
+                                        except Exception:
+                                            pass  # Non-critical
+                            except Exception as rec_err:
+                                logger.warning(f"   ⚠️ Error processing recording: {rec_err}")
+                    except Exception as user_err:
+                        logger.warning(f"   ⚠️ Error scanning user {user.get('email')}: {user_err}")
             except Exception as e:
                 logger.error(f"Zoom Scan Error ({name}): {e}")
 
+        if count > 0:
+            logger.info(f"   📥 Added {count} new recordings to queue")
+
     def _process_queue(self):
-        # Fetch APPROVED items (different from PENDING)
-        # We need a new method in DB or execute query
-        # Actually API sets status to 'APPROVED'. 
-        # We need to find 'APPROVED' items.
-        
-        # Let's add get_approved to DB or run query here? 
-        # Better to add to DB wrapper. But for now I'll use raw query for speed
+        """Process approved recordings with comprehensive error handling."""
         cur = db.conn.cursor()
         cur.execute("SELECT * FROM recordings WHERE status = 'APPROVED'")
         tasks = cur.fetchall()
-        
+
         logger.info(f"Found {len(tasks)} approved tasks to process")
-        
+
         for task in tasks:
-            task = dict(task)  # Convert Row to dict
-            zoom_id = task['zoom_id']  # This is now UUID (unique per recording)
-            meeting_id = task.get('meeting_id', zoom_id)  # Fall back to zoom_id for old records
+            task = dict(task)
+            zoom_id = task['zoom_id']
+            meeting_id = task.get('meeting_id', zoom_id)
             topic = task['topic']
             start_time = task['start_time']
             team = task.get('team', 'Unknown')
             playlist = task.get('playlist', 'General')
             account_name = task.get('account_name', 'Zoom Account 1')
 
-            logger.info(f"▶️  Processing: {topic} (UUID: {zoom_id[:20] if len(zoom_id) > 20 else zoom_id}...)")
-            db.update_recording(zoom_id, {"status": "PROCESSING"})
-            
-            # Log to sheets
-            if self.sheets:
-                try:
-                    self.sheets.log(action="Processing Started", details=f"ID: {zoom_id}, Topic: {topic}", status="PROCESSING")
-                except Exception as e:
-                    logger.warning(f"   ⚠️  Sheets log failed: {e}")
-            
+            display_id = zoom_id[:20] + '...' if len(zoom_id) > 20 else zoom_id
+            logger.info(f"▶️  Processing: {topic} ({display_id})")
+
+            # Mark as processing with timestamp
+            db.update_recording(zoom_id, {
+                "status": "PROCESSING",
+                "processed_at": datetime.now().isoformat()
+            })
+
             try:
-                # Generate proper names with date format
-                names = generate_names(topic, start_time)
-                video_filename = names['video_filename']
-                youtube_title = names['youtube_title']  # Format: "20260108 Topic Name"
-                transcript_filename = names['transcript_filename']
-                
-                logger.info(f"   Generated title: {youtube_title}")
-                
-                # Get the Zoom client for this account
-                zoom_client = self.zoom_clients.get(account_name)
-                if not zoom_client:
-                    raise Exception(f"Zoom client not found for account: {account_name}")
-                
-                # 1. DOWNLOAD from Zoom
-                logger.info(f"   📥 Downloading from Zoom...")
-                video_path = os.path.join(DOWNLOAD_DIR, video_filename)
-                transcript_path = os.path.join(DOWNLOAD_DIR, transcript_filename)
+                self._process_single_recording(task, zoom_id, topic, start_time, team, playlist, account_name)
 
-                # Get recording data from stored metadata or fetch from API
-                import json
-                stored_metadata = task.get('metadata')
-                if stored_metadata:
-                    try:
-                        recording_data = json.loads(stored_metadata) if isinstance(stored_metadata, str) else stored_metadata
-                    except:
-                        recording_data = None
+            except Exception as e:
+                error_msg = str(e)
+                logger.error(f"   ❌ Processing Failed: {error_msg}")
 
-                # If no valid metadata, fetch from Zoom API using UUID
-                if not recording_data or 'recording_files' not in recording_data:
-                    # Use double-encoded UUID for API call (Zoom requires this)
-                    import urllib.parse
-                    encoded_uuid = urllib.parse.quote(urllib.parse.quote(zoom_id, safe=''), safe='')
-                    recording_data = zoom_client.get_meeting_recordings(encoded_uuid)
+                # Check if it's a YouTube quota error
+                if 'quota' in error_msg.lower():
+                    logger.error("   🚫 YouTube quota exceeded! Pausing YouTube operations for 24 hours.")
+                    self.youtube_quota_exceeded_at = datetime.now()
+                    # Reset to APPROVED so it can be retried after quota reset
+                    db.update_recording(zoom_id, {
+                        "status": "APPROVED",
+                        "error_message": "YouTube quota exceeded - will retry after reset"
+                    })
+                else:
+                    # For other errors, mark as ERROR (will be auto-recovered)
+                    db.update_recording(zoom_id, {
+                        "status": "ERROR",
+                        "error_message": error_msg[:500]  # Truncate long errors
+                    })
+                    db.add_log("ERROR", f"Failed {zoom_id}: {error_msg[:200]}")
 
-                video_url = None
-                transcript_url = None
+    def _process_single_recording(self, task, zoom_id, topic, start_time, team, playlist, account_name):
+        """Process a single recording with retry logic."""
+        import json
+        import urllib.parse
 
-                for file in recording_data.get('recording_files', []):
-                    if file.get('file_type') == 'MP4':
-                        video_url = file.get('download_url')
-                    elif file.get('file_type') == 'TRANSCRIPT':
-                        transcript_url = file.get('download_url')
-                
-                if not video_url:
-                    raise Exception("No video file found in recording")
-                
-                # Download video
+        # Generate names
+        names = generate_names(topic, start_time)
+        video_filename = names['video_filename']
+        youtube_title = names['youtube_title']
+        transcript_filename = names['transcript_filename']
+
+        logger.info(f"   Generated title: {youtube_title}")
+
+        # Get Zoom client
+        zoom_client = self.zoom_clients.get(account_name)
+        if not zoom_client:
+            raise Exception(f"Zoom client not found: {account_name}")
+
+        # 1. DOWNLOAD from Zoom (with retry)
+        logger.info(f"   📥 Downloading from Zoom...")
+        video_path = os.path.join(DOWNLOAD_DIR, video_filename)
+        transcript_path = os.path.join(DOWNLOAD_DIR, transcript_filename)
+
+        recording_data = None
+        stored_metadata = task.get('metadata')
+        if stored_metadata:
+            try:
+                recording_data = json.loads(stored_metadata) if isinstance(stored_metadata, str) else stored_metadata
+            except:
+                pass
+
+        if not recording_data or 'recording_files' not in recording_data:
+            encoded_uuid = urllib.parse.quote(urllib.parse.quote(zoom_id, safe=''), safe='')
+            recording_data = zoom_client.get_meeting_recordings(encoded_uuid)
+
+        if not recording_data:
+            raise Exception("Could not fetch recording data from Zoom")
+
+        video_url = None
+        transcript_url = None
+        for file in recording_data.get('recording_files', []):
+            if file.get('file_type') == 'MP4':
+                video_url = file.get('download_url')
+            elif file.get('file_type') == 'TRANSCRIPT':
+                transcript_url = file.get('download_url')
+
+        if not video_url:
+            raise Exception("No video file found in recording")
+
+        # Download with retry
+        for attempt in range(MAX_RETRIES):
+            try:
                 zoom_client.download_file(video_url, video_path)
-                logger.info(f"   ✅ Video downloaded: {video_filename}")
-                
-                # Download transcript if available
-                if transcript_url:
-                    zoom_client.download_file(transcript_url, transcript_path)
-                    logger.info(f"   ✅ Transcript downloaded")
-                
-                # 2. UPLOAD to YouTube
-                logger.info(f"   📤 Uploading to YouTube...")
-                description = f"{topic}\n\nRecorded: {start_time}\nTeam: {team}\nPlaylist: {playlist}"
-                
+                logger.info(f"   ✅ Video downloaded")
+                break
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"   ⚠️ Download retry {attempt+1}: {e}")
+                    time.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    raise
+
+        if transcript_url:
+            try:
+                zoom_client.download_file(transcript_url, transcript_path)
+                logger.info(f"   ✅ Transcript downloaded")
+            except Exception:
+                pass  # Transcript is optional
+
+        # 2. UPLOAD to YouTube (with retry)
+        logger.info(f"   📤 Uploading to YouTube...")
+        description = f"{topic}\n\nRecorded: {start_time}\nTeam: {team}\nPlaylist: {playlist}"
+
+        video_id = None
+        for attempt in range(MAX_RETRIES):
+            try:
                 video_id = self.youtube.upload_video(
                     file_path=video_path,
-                    title=youtube_title,  # Uses date-formatted title
+                    title=youtube_title,
                     description=description,
                     privacy_status="unlisted"
                 )
-                youtube_url = f"https://youtu.be/{video_id}"
-                logger.info(f"   ✅ YouTube: {youtube_url}")
-                
-                # Log YouTube upload to sheets
-                if self.sheets:
-                    try:
-                        self.sheets.log_youtube_upload(zoom_id, youtube_url)
-                    except Exception as e:
-                        logger.warning(f"   ⚠️  Sheets log failed: {e}")
-                
-                # Upload captions if transcript exists
-                if transcript_url and os.path.exists(transcript_path):
-                    try:
-                        # Read transcript content
-                        with open(transcript_path, 'r', encoding='utf-8') as f:
-                            transcript_text = f.read()
-                        
-                        # Upload as caption/subtitle
-                        self.youtube.upload_caption(video_id, transcript_path, language='en')
-                        logger.info(f"   ✅ Captions/transcript uploaded to YouTube")
-                    except Exception as e:
-                        logger.warning(f"   ⚠️  Caption upload failed: {e}")
-                
-                # Add to playlist (lookup ID from name)
-                try:
-                    playlist_id = self._get_playlist_id(playlist)
-                    if playlist_id:
-                        self.youtube.add_to_playlist(video_id, playlist_id)
-                        logger.info(f"   ✅ Added to playlist: {playlist} (ID: {playlist_id})")
-                    else:
-                        logger.warning(f"   ⚠️  Playlist ID not found for: {playlist}")
-                except Exception as e:
-                    logger.warning(f"   ⚠️  Playlist add failed: {e}")
-                
-                # 3. UPLOAD to Drive (Backup)
-                logger.info(f"   📤 Uploading to Drive...")
-                
-                # Get exact Drive folder IDs from playlist configuration
-                drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
-                
-                if not drive_folder_id or not transcript_folder_id:
-                    raise Exception(f"Drive folder IDs not found for playlist: {playlist}. Check config/playlists.json")
-                
-                logger.info(f"   Using Drive folders - Video: {drive_folder_id}, Transcript: {transcript_folder_id}")
-                
-                # Upload video to recording folder
-                drive_video_id = self.drive.upload_file(video_path, video_filename, drive_folder_id)
-                drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
-                logger.info(f"   ✅ Drive Video: {drive_url}")
-                
-                # Log Drive upload to sheets
-                if self.sheets:
-                    try:
-                        self.sheets.log_drive_upload(zoom_id, drive_url)
-                    except Exception as e:
-                        logger.warning(f"   ⚠️  Sheets log failed: {e}")
-                
-                # Upload transcript to transcript folder
-                if os.path.exists(transcript_path):
-                    drive_transcript_id = self.drive.upload_file(transcript_path, transcript_filename, transcript_folder_id)
-                    logger.info(f"   ✅ Transcript backed up to Drive: https://drive.google.com/file/d/{drive_transcript_id}/view")
-                
-                # 4. VERIFY UPLOADS (Critical Safety Check)
-                logger.info(f"   🔍 Verifying uploads...")
-                youtube_verified = False
-                drive_verified = False
-                
-                try:
-                    # Verify YouTube
-                    yt_status = self.youtube.get_video_status(video_id)
-                    if yt_status in ['uploaded', 'processed']:
-                        youtube_verified = True
-                        logger.info(f"   ✅ YouTube upload verified: {yt_status}")
-                    else:
-                        raise Exception(f"YouTube video status: {yt_status}")
-                except Exception as e:
-                    logger.error(f"   ❌ YouTube verification failed: {e}")
-                
-                try:
-                    # Verify Drive (check if file exists)
-                    if drive_video_id:
-                        drive_verified = True
-                        logger.info(f"   ✅ Drive upload verified")
-                except Exception as e:
-                    logger.error(f"   ❌ Drive verification failed: {e}")
-                
-                
-                # 5. MARK FOR DELAYED DELETION (24-hour safety period)
-                # Instead of deleting immediately, we mark when it's safe to delete
-                if youtube_verified and drive_verified:
-                    from datetime import timedelta
-                    deletion_ready_time = datetime.now() + timedelta(hours=config.DELETE_DELAY_HOURS)
-                    logger.info(f"   ⏰ Zoom deletion scheduled for: {deletion_ready_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                    logger.info(f"   ℹ️  Will verify uploads and delete after {config.DELETE_DELAY_HOURS} hour safety period")
-                    
-                    # Store the deletion ready timestamp
-                    db.update_recording(zoom_id, {
-                        "deletion_ready_at": deletion_ready_time.isoformat(),
-                        "zoom_deletion_status": "PENDING"
-                    })
-                else:
-                    logger.warning(f"   ⚠️  Uploads not fully verified - Zoom deletion will NOT be scheduled")
-                    logger.warning(f"      YouTube verified: {youtube_verified}, Drive verified: {drive_verified}")
-
-                
-                # 6. CLEANUP local files
-                if os.path.exists(video_path):
-                    os.remove(video_path)
-                if os.path.exists(transcript_path):
-                    os.remove(transcript_path)
-                logger.info(f"   🗑️  Local files cleaned up")
-                
-                # 7. UPDATE status
-                db.update_recording(zoom_id, {
-                    "status": "COMPLETED",
-                    "youtube_url": youtube_url,
-                    "drive_url": drive_url,
-                    "processed_at": datetime.now().isoformat()
-                })
-                db.add_log("INFO", f"✅ Completed: {zoom_id} - {youtube_title}")
-                logger.info(f"   ✅ COMPLETED: {zoom_id}")
-                
-                # Log completion to sheets
-                if self.sheets:
-                    try:
-                        self.sheets.log_completion(zoom_id, topic, youtube_url, drive_url)
-                    except Exception as e:
-                        logger.warning(f"   ⚠️  Sheets log failed: {e}")
-                
+                break
             except Exception as e:
-                logger.error(f"   ❌ Processing Failed {zoom_id}: {e}")
-                import traceback
-                logger.error(f"   Traceback:\n{traceback.format_exc()}")
-                db.update_recording(zoom_id, {"status": "ERROR", "error_message": str(e)})
-                db.add_log("ERROR", f"Failed {zoom_id}: {e}")
-                
-                # Log error to sheets
-                if self.sheets:
-                    try:
-                        self.sheets.log_error("Processing Failed", str(e), zoom_id)
-                    except Exception as sheet_err:
-                        logger.warning(f"   ⚠️  Sheets error log failed: {sheet_err}")
+                if 'quota' in str(e).lower():
+                    raise  # Don't retry quota errors
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"   ⚠️ YouTube upload retry {attempt+1}: {e}")
+                    time.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    raise
+
+        youtube_url = f"https://youtu.be/{video_id}"
+        logger.info(f"   ✅ YouTube: {youtube_url}")
+
+        # Add to playlist (non-critical)
+        try:
+            playlist_id = self._get_playlist_id(playlist)
+            if playlist_id:
+                self.youtube.add_to_playlist(video_id, playlist_id)
+                logger.info(f"   ✅ Added to playlist: {playlist}")
+        except Exception as e:
+            logger.warning(f"   ⚠️ Playlist add failed (non-critical): {e}")
+
+        # Upload captions (non-critical)
+        if transcript_url and os.path.exists(transcript_path):
+            try:
+                self.youtube.upload_caption(video_id, transcript_path, language='en')
+                logger.info(f"   ✅ Captions uploaded")
+            except Exception:
+                pass
+
+        # 3. UPLOAD to Drive (with retry)
+        logger.info(f"   📤 Uploading to Drive...")
+        drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
+
+        if not drive_folder_id:
+            logger.warning(f"   ⚠️ No Drive folder configured for {playlist}, using default")
+            drive_folder_id = config.DRIVE_ROOT_FOLDER_ID
+            transcript_folder_id = config.DRIVE_ROOT_FOLDER_ID
+
+        drive_video_id = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                drive_video_id = self.drive.upload_file(video_path, video_filename, drive_folder_id)
+                break
+            except Exception as e:
+                if attempt < MAX_RETRIES - 1:
+                    logger.warning(f"   ⚠️ Drive upload retry {attempt+1}: {e}")
+                    time.sleep(RETRY_DELAY_SECONDS)
+                else:
+                    raise
+
+        drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
+        logger.info(f"   ✅ Drive: {drive_url}")
+
+        # Upload transcript to Drive (non-critical)
+        if os.path.exists(transcript_path) and transcript_folder_id:
+            try:
+                self.drive.upload_file(transcript_path, transcript_filename, transcript_folder_id)
+                logger.info(f"   ✅ Transcript backed up to Drive")
+            except Exception:
+                pass
+
+        # 4. Schedule Zoom deletion
+        deletion_ready_time = datetime.now() + timedelta(hours=config.DELETE_DELAY_HOURS)
+        logger.info(f"   ⏰ Zoom deletion scheduled for: {deletion_ready_time.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # 5. Cleanup local files
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+            if os.path.exists(transcript_path):
+                os.remove(transcript_path)
+            logger.info(f"   🗑️ Local files cleaned up")
+        except Exception:
+            pass
+
+        # 6. Mark as COMPLETED
+        db.update_recording(zoom_id, {
+            "status": "COMPLETED",
+            "youtube_url": youtube_url,
+            "drive_url": drive_url,
+            "processed_at": datetime.now().isoformat(),
+            "deletion_ready_at": deletion_ready_time.isoformat(),
+            "zoom_deletion_status": "PENDING"
+        })
+        db.add_log("INFO", f"✅ Completed: {youtube_title}")
+        logger.info(f"   ✅ COMPLETED")
+
+        # Update sheets (non-critical)
+        if self.sheets:
+            try:
+                self.sheets.log_completion(zoom_id, topic, youtube_url, drive_url)
+            except Exception:
+                pass
 
     def _cleanup_zoom_recordings(self):
-        """Check for completed recordings that are ready for Zoom deletion after safety period."""
+        """Check for completed recordings that are ready for Zoom deletion."""
         try:
             cur = db.conn.cursor()
-            # Find recordings that are:
-            # 1. Status = COMPLETED
-            # 2. Have deletion_ready_at timestamp
-            # 3. deletion_ready_at is in the past
-            # 4. zoom_deletion_status is PENDING (not already deleted)
             cur.execute("""
-                SELECT * FROM recordings 
-                WHERE status = 'COMPLETED' 
-                AND deletion_ready_at IS NOT NULL 
-                AND deletion_ready_at <= ? 
+                SELECT * FROM recordings
+                WHERE status = 'COMPLETED'
+                AND deletion_ready_at IS NOT NULL
+                AND deletion_ready_at <= ?
                 AND (zoom_deletion_status IS NULL OR zoom_deletion_status = 'PENDING')
             """, (datetime.now().isoformat(),))
-            
+
             ready_for_deletion = cur.fetchall()
-            
+
             if not ready_for_deletion:
                 logger.info("   No recordings ready for Zoom deletion")
                 return
-            
+
             logger.info(f"   Found {len(ready_for_deletion)} recording(s) ready for Zoom deletion")
-            
+
             for task in ready_for_deletion:
                 task = dict(task)
                 zoom_id = task['zoom_id']
@@ -509,75 +561,38 @@ class BackgroundService(threading.Thread):
                 youtube_url = task.get('youtube_url')
                 drive_url = task.get('drive_url')
                 account_name = task.get('account_name', 'Zoom Account 1')
-                deletion_ready_at = task.get('deletion_ready_at')
-                
-                logger.info(f"   🔍 Verifying {zoom_id} - {topic}")
-                logger.info(f"      Scheduled for deletion at: {deletion_ready_at}")
-                
-                # Get the Zoom client for this account
+
+                # Skip if no backups exist
+                if not youtube_url or not drive_url:
+                    logger.warning(f"   ⚠️ Skipping {zoom_id} - missing backup URLs")
+                    continue
+
                 zoom_client = self.zoom_clients.get(account_name)
                 if not zoom_client:
-                    logger.error(f"      ❌ Zoom client not found for account: {account_name}")
                     continue
-                
-                # RE-VERIFY uploads before deletion (extra safety)
-                youtube_still_exists = False
-                drive_still_exists = False
-                
-                if youtube_url and self.youtube:
-                    try:
-                        # Extract video ID from URL
-                        video_id = youtube_url.split('/')[-1]
-                        yt_status = self.youtube.get_video_status(video_id)
-                        if yt_status in ['uploaded', 'processed']:
-                            youtube_still_exists = True
-                            logger.info(f"      ✅ YouTube verified: {yt_status}")
-                        else:
-                            logger.warning(f"      ⚠️  YouTube status unexpected: {yt_status}")
-                    except Exception as e:
-                        logger.error(f"      ❌ YouTube re-verification failed: {e}")
-                
-                if drive_url:
-                    # If we have a Drive URL, assume it exists (Drive doesn't delete files automatically)
-                    drive_still_exists = True
-                    logger.info(f"      ✅ Drive URL present: {drive_url}")
-                
-                # Only delete if BOTH uploads are still verified
-                if youtube_still_exists and drive_still_exists:
-                    try:
-                        logger.info(f"      🗑️  Deleting from Zoom...")
-                        if zoom_client.delete_recording(zoom_id, action="delete"):
-                            logger.info(f"      ✅ Zoom recording deleted successfully")
-                            db.update_recording(zoom_id, {
-                                "zoom_deletion_status": "DELETED",
-                                "zoom_deleted_at": datetime.now().isoformat()
-                            })
-                            db.add_log("INFO", f"🗑️  Deleted from Zoom: {zoom_id} - {topic}")
-                        else:
-                            logger.warning(f"      ⚠️  Zoom deletion returned False")
-                            db.update_recording(zoom_id, {"zoom_deletion_status": "FAILED"})
-                    except Exception as e:
-                        logger.error(f"      ❌ Zoom deletion failed: {e}")
+
+                try:
+                    logger.info(f"   🗑️ Deleting {topic[:30]}...")
+                    if zoom_client.delete_recording(zoom_id, action="delete"):
                         db.update_recording(zoom_id, {
-                            "zoom_deletion_status": "FAILED",
-                            "zoom_deletion_error": str(e)
+                            "zoom_deletion_status": "DELETED",
+                            "zoom_deleted_at": datetime.now().isoformat()
                         })
-                else:
-                    logger.error(f"      ❌ SAFETY CHECK FAILED - Not deleting from Zoom")
-                    logger.error(f"         YouTube exists: {youtube_still_exists}, Drive exists: {drive_still_exists}")
+                        logger.info(f"   ✅ Deleted from Zoom")
+                except Exception as e:
+                    logger.error(f"   ❌ Zoom deletion failed: {e}")
                     db.update_recording(zoom_id, {
-                        "zoom_deletion_status": "VERIFICATION_FAILED",
-                        "zoom_deletion_error": f"YT:{youtube_still_exists}, Drive:{drive_still_exists}"
+                        "zoom_deletion_status": "FAILED",
+                        "zoom_deletion_error": str(e)[:200]
                     })
-                    
+
         except Exception as e:
             logger.error(f"   ❌ Cleanup phase error: {e}")
-            import traceback
-            logger.error(f"   Traceback:\n{traceback.format_exc()}")
 
 
-# Initializer for fastAPI to call
+# Singleton service instance
 service = BackgroundService()
+
 def start_service():
     if not service.is_alive():
         service.start()

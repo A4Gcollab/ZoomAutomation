@@ -1,8 +1,7 @@
 'use client';
 
 import { useUser } from "@/firebase/auth/use-user";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef } from "react";
+import { redirect } from "next/navigation";
 import DashboardLayout from "@/components/dashboard-layout";
 import { CompletedHistory } from "@/components/dashboard/completed-history";
 import { ErrorLogs } from "@/components/dashboard/error-logs";
@@ -12,20 +11,10 @@ import { LiveConsole } from "@/components/dashboard/live-console";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Home() {
-  const { user, loading, initialized } = useUser();
-  const router = useRouter();
-  const hasRedirected = useRef(false);
-
-  useEffect(() => {
-    // Only redirect once after auth is fully initialized
-    if (initialized && !loading && !user && !hasRedirected.current) {
-      hasRedirected.current = true;
-      router.replace('/login');
-    }
-  }, [user, loading, initialized, router]);
+  const { user, loading } = useUser();
 
   // Show loading while auth is initializing
-  if (!initialized || loading) {
+  if (loading) {
     return (
       <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
         <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
@@ -34,14 +23,9 @@ export default function Home() {
     );
   }
 
-  // Not authenticated - show loading while redirecting
+  // Not authenticated - redirect to login
   if (!user) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
-        <p className="text-muted-foreground text-sm">Redirecting...</p>
-      </div>
-    );
+    redirect('/login');
   }
 
   // Authenticated - show dashboard

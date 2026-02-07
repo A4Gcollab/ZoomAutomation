@@ -1,8 +1,8 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState } from 'react';
 import { useUser } from '@/firebase/auth/use-user';
-import { useRouter } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,12 +10,12 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
+import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
-  const { user, loading, initialized, signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
+  const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
   const router = useRouter();
   const { toast } = useToast();
-  const hasRedirected = useRef(false);
 
   const [loginEmail, setLoginEmail] = useState('');
   const [loginPassword, setLoginPassword] = useState('');
@@ -24,13 +24,20 @@ export default function LoginPage() {
   const [signupPassword, setSignupPassword] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
 
-  // If user is already logged in, redirect to dashboard (only once)
-  useEffect(() => {
-    if (initialized && !loading && user && !hasRedirected.current) {
-      hasRedirected.current = true;
-      router.replace('/');
-    }
-  }, [user, loading, initialized, router]);
+  // Show loading while auth is initializing
+  if (loading) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-background">
+        <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
+        <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
+      </div>
+    );
+  }
+
+  // Already logged in - redirect to dashboard
+  if (user) {
+    redirect('/');
+  }
 
   const handleGoogleSignIn = async () => {
     setLocalLoading(true);
@@ -65,18 +72,6 @@ export default function LoginPage() {
       setLocalLoading(false);
     }
   };
-
-  // Show loading while auth is initializing or user is logged in (redirecting)
-  if (!initialized || loading || user) {
-    return (
-      <div className="flex min-h-screen flex-col items-center justify-center bg-background">
-        <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
-        <p className="mt-4 text-sm text-muted-foreground">
-          {user ? 'Redirecting to dashboard...' : 'Loading...'}
-        </p>
-      </div>
-    );
-  }
 
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-background">

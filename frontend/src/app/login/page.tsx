@@ -1,8 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useUser } from '@/firebase/auth/use-user';
-import { redirect } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Icons } from '@/components/icons';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -10,7 +10,6 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { useToast } from '@/hooks/use-toast';
-import { useRouter } from 'next/navigation';
 
 export default function LoginPage() {
   const { user, loading, signInWithGoogle, signInWithEmail, signUpWithEmail } = useUser();
@@ -24,19 +23,20 @@ export default function LoginPage() {
   const [signupPassword, setSignupPassword] = useState('');
   const [localLoading, setLocalLoading] = useState(false);
 
-  // Show loading while auth is initializing
-  if (loading) {
+  useEffect(() => {
+    if (!loading && user) {
+      router.replace('/');
+    }
+  }, [loading, user, router]);
+
+  // Show loading while auth is initializing or user is logged in
+  if (loading || user) {
     return (
       <div className="flex min-h-screen flex-col items-center justify-center bg-background">
         <Icons.spinner className="h-8 w-8 animate-spin text-primary" />
         <p className="mt-4 text-sm text-muted-foreground">Loading...</p>
       </div>
     );
-  }
-
-  // Already logged in - redirect to dashboard
-  if (user) {
-    redirect('/');
   }
 
   const handleGoogleSignIn = async () => {

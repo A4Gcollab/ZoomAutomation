@@ -1,7 +1,8 @@
 'use client';
 
 import { useUser } from "@/firebase/auth/use-user";
-import { redirect } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 import DashboardLayout from "@/components/dashboard-layout";
 import { CompletedHistory } from "@/components/dashboard/completed-history";
 import { ErrorLogs } from "@/components/dashboard/error-logs";
@@ -12,6 +13,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 export default function Home() {
   const { user, loading } = useUser();
+  const router = useRouter();
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.replace('/login');
+    }
+  }, [loading, user, router]);
 
   // Show loading while auth is initializing
   if (loading) {
@@ -23,9 +31,13 @@ export default function Home() {
     );
   }
 
-  // Not authenticated - redirect to login
+  // Not authenticated - show loading while redirect happens
   if (!user) {
-    redirect('/login');
+    return (
+      <div className="flex h-screen w-full items-center justify-center flex-col gap-4 bg-background">
+        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+      </div>
+    );
   }
 
   // Authenticated - show dashboard

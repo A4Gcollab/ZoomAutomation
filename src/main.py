@@ -3,6 +3,7 @@ import logging
 import time
 import threading
 import traceback
+import urllib.parse
 from datetime import datetime, timedelta
 from src import config
 from src.db_sql import db
@@ -225,16 +226,21 @@ class BackgroundService(threading.Thread):
                         for r in recs:
                             r['account_name'] = name
 
-                            team, playlist = self._resolve_team_playlist(r['id'])
+                            # Use UUID as unique identifier (different for each recurring instance)
+                            # Fall back to meeting ID if UUID not available
+                            uuid = r.get('uuid', str(r['id']))
+                            meeting_id = str(r['id'])
+
+                            team, playlist = self._resolve_team_playlist(meeting_id)
                             if team:
                                 r['team'] = team
                             if playlist:
                                 r['playlist'] = playlist
 
-                            if db.add_recording(str(r['id']), r):
+                            if db.add_recording(uuid, r, meeting_id=meeting_id):
                                 count += 1
                                 if team:
-                                    logger.info(f"Auto-Matched {r['id']} -> {team} / {playlist}")
+                                    logger.info(f"Auto-Matched {uuid} (meeting {meeting_id}) -> {team} / {playlist}")
 
                                 # Add to Google Sheets (non-critical)
                                 if self.sheets:
@@ -250,19 +256,30 @@ class BackgroundService(threading.Thread):
         if count > 0:
             logger.info(f"Added {count} new recording(s) to database")
 
+    def _encode_uuid_for_zoom(self, uuid_str):
+        """Double URL-encode a UUID for use with the Zoom API.
+
+        Zoom UUIDs that start with '/' or contain '//' must be double-encoded.
+        Safe to call on any UUID - it won't break non-special ones.
+        """
+        if uuid_str and ('/' in uuid_str or uuid_str.startswith('/')):
+            return urllib.parse.quote(urllib.parse.quote(uuid_str, safe=''), safe='')
+        return uuid_str
+
     def _process_queue(self):
         tasks = db.get_approved()
         logger.info(f"Found {len(tasks)} approved tasks to process")
 
         for task in tasks:
-            zoom_id = task['zoom_id']
+            zoom_id = task['zoom_id']  # This is now the UUID
+            meeting_id = task.get('meeting_id') or zoom_id  # Fallback for old records
             topic = task['topic']
             start_time = task['start_time']
             team = task.get('team', 'Unknown')
             playlist = task.get('playlist', 'General')
             account_name = task.get('account_name', 'Zoom Account 1')
 
-            logger.info(f"Processing: {zoom_id} - {topic}")
+            logger.info(f"Processing: {zoom_id} (meeting {meeting_id}) - {topic}")
 
             # Mark as PROCESSING with timestamp
             db.update_recording(zoom_id, {
@@ -298,7 +315,14 @@ class BackgroundService(threading.Thread):
                 video_path = os.path.join(DOWNLOAD_DIR, video_filename)
                 transcript_path = os.path.join(DOWNLOAD_DIR, transcript_filename)
 
-                recording_data = zoom_client.get_recording_details(zoom_id)
+                # Use URL-encoded UUID for Zoom API calls (required for recurring meetings)
+                encoded_id = self._encode_uuid_for_zoom(zoom_id)
+                recording_data = zoom_client.get_recording_details(encoded_id)
+
+                # If UUID lookup fails, fall back to meeting ID
+                if not recording_data:
+                    logger.warning(f"   UUID lookup failed, trying meeting ID: {meeting_id}")
+                    recording_data = zoom_client.get_recording_details(meeting_id)
                 video_url = None
                 transcript_url = None
 
@@ -519,7 +543,8 @@ class BackgroundService(threading.Thread):
             logger.info(f"   Found {len(ready_for_deletion)} recording(s) ready for Zoom deletion")
 
             for task in ready_for_deletion:
-                zoom_id = task['zoom_id']
+                zoom_id = task['zoom_id']  # UUID
+                meeting_id = task.get('meeting_id') or zoom_id
                 topic = task['topic']
                 youtube_url = task.get('youtube_url')
                 drive_url = task.get('drive_url')
@@ -556,7 +581,8 @@ class BackgroundService(threading.Thread):
                 if youtube_still_exists and drive_still_exists:
                     try:
                         logger.info(f"      Deleting from Zoom...")
-                        if zoom_client.delete_recording(zoom_id, action="delete"):
+                        encoded_id = self._encode_uuid_for_zoom(zoom_id)
+                        if zoom_client.delete_recording(encoded_id, action="delete"):
                             logger.info(f"      Zoom recording deleted successfully")
                             db.update_recording(zoom_id, {
                                 "zoom_deletion_status": "DELETED",

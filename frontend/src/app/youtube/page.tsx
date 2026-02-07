@@ -5,12 +5,16 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Link2, PlusCircle, Trash2 } from "lucide-react";
+import { Link2, ExternalLink } from "lucide-react";
 
 const linkedChannels = [
-  { id: 'UC-lHJZR3Gqxm24_Vd_AJ5Yw', name: 'Google for Developers', subscribers: '2.3M', status: 'Linked' },
-  { id: 'UC_x5XG1OV2P6uZZ5FSM9Ttw', name: 'Firebase', subscribers: '450K', status: 'Linked' },
-  { id: 'UCwKTF2k2a8Gv5D2jL8n9v-w', name: 'Flutter', subscribers: '700K', status: 'Linked' },
+  {
+    id: 'UCrxNv_iH_WVtlt3NaA-NZxw',
+    name: 'Omysha Internal Recordings',
+    url: 'https://www.youtube.com/@OmyshaInternalRecordings',
+    studioUrl: 'https://studio.youtube.com/channel/UCrxNv_iH_WVtlt3NaA-NZxw/videos/upload?filter=%5B%5D&sort=%7B%22columnType%22%3A%22date%22%2C%22sortOrder%22%3A%22DESCENDING%22%7D',
+    status: 'Active',
+  },
 ];
 
 
@@ -22,10 +26,6 @@ export default function YouTubePage() {
           <h1 className="text-3xl font-bold tracking-tight">
             YouTube Channels
           </h1>
-          <Button>
-            <PlusCircle className="mr-2" />
-            Link New Channel
-          </Button>
         </div>
         <p className="text-muted-foreground">Manage your YouTube channel integrations here.</p>
 
@@ -41,7 +41,6 @@ export default function YouTubePage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Channel</TableHead>
-                            <TableHead>Subscribers</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -50,16 +49,17 @@ export default function YouTubePage() {
                         {linkedChannels.map((channel) => (
                             <TableRow key={channel.id}>
                                 <TableCell className="font-medium">{channel.name}</TableCell>
-                                <TableCell>{channel.subscribers}</TableCell>
                                 <TableCell><Badge className="bg-chart-2 text-white">{channel.status}</Badge></TableCell>
-                                <TableCell className="text-right">
+                                <TableCell className="text-right space-x-2">
                                     <Button variant="ghost" size="icon" asChild>
-                                        <a href={`https://www.youtube.com/channel/${channel.id}`} target="_blank" rel="noopener noreferrer">
+                                        <a href={channel.url} target="_blank" rel="noopener noreferrer" title="View Channel">
                                             <Link2 className="h-4 w-4" />
                                         </a>
                                     </Button>
-                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                                        <Trash2 className="h-4 w-4" />
+                                    <Button variant="ghost" size="icon" asChild>
+                                        <a href={channel.studioUrl} target="_blank" rel="noopener noreferrer" title="YouTube Studio">
+                                            <ExternalLink className="h-4 w-4" />
+                                        </a>
                                     </Button>
                                 </TableCell>
                             </TableRow>

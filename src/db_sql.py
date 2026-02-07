@@ -34,9 +34,12 @@ class Database:
             cur = self.conn.cursor()
 
             # Recordings Table
+            # zoom_id = UUID (unique per recording instance)
+            # meeting_id = numeric Zoom meeting ID (same for recurring meetings)
             cur.execute('''
             CREATE TABLE IF NOT EXISTS recordings (
                 zoom_id TEXT PRIMARY KEY,
+                meeting_id TEXT,
                 account_name TEXT,
                 topic TEXT,
                 start_time TEXT,
@@ -79,6 +82,7 @@ class Database:
     def _migrate_columns(self, cur):
         """Add any missing columns to existing tables."""
         new_columns = [
+            ("meeting_id", "TEXT"),
             ("error_message", "TEXT"),
             ("retry_count", "INTEGER DEFAULT 0"),
             ("processed_at", "TEXT"),
@@ -96,8 +100,14 @@ class Database:
             except sqlite3.OperationalError:
                 pass  # Column already exists
 
-    def add_recording(self, zoom_id, data):
-        """Insert or Ignore new recording."""
+    def add_recording(self, zoom_id, data, meeting_id=None):
+        """Insert or Ignore new recording.
+
+        Args:
+            zoom_id: UUID (unique per recording instance) - used as primary key
+            data: Full recording data dict from Zoom
+            meeting_id: Numeric meeting ID (same for recurring meetings) - used for playlist matching
+        """
         with self._lock:
             try:
                 cur = self._get_cursor()
@@ -105,12 +115,13 @@ class Database:
                 start_time = data.get('start_time', '')
                 date_str = start_time[:10] if start_time else ''
                 acc_name = data.get('account_name', '')
+                mid = meeting_id or str(data.get('id', ''))
 
                 cur.execute('''
                     INSERT OR IGNORE INTO recordings
-                    (zoom_id, account_name, topic, start_time, date_str, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                ''', (zoom_id, acc_name, topic, start_time, date_str, json.dumps(data)))
+                    (zoom_id, meeting_id, account_name, topic, start_time, date_str, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                ''', (zoom_id, mid, acc_name, topic, start_time, date_str, json.dumps(data)))
                 self.conn.commit()
                 return cur.rowcount > 0
             except Exception as e:

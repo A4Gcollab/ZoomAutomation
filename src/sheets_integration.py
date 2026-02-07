@@ -156,7 +156,7 @@ class SheetManager:
         skipped_count = 0
         
         for rec in recordings_list:
-            zoom_id = str(rec.get('id', ''))
+            zoom_id = str(rec.get('uuid', rec.get('id', '')))
             
             if not zoom_id:
                 logger.debug("Skipping recording with empty ID")
@@ -198,7 +198,7 @@ class SheetManager:
 
     def add_recording(self, rec):
         """Add a single recording to the sheet."""
-        zoom_id = str(rec.get('id', ''))
+        zoom_id = str(rec.get('uuid', rec.get('id', '')))
         existing_ids = self.get_existing_ids()
         if zoom_id in existing_ids:
             return False

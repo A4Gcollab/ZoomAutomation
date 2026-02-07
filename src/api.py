@@ -277,12 +277,19 @@ async def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict 
         raise HTTPException(status_code=400, detail="Team and Playlist are required.")
 
     try:
+        # First approve the specific recording
         db.update_recording(zoom_id, {
             "team": team,
             "playlist": playlist,
             "status": "APPROVED",
             "approved_by": user['email']
         })
+
+        # Then bulk-approve ALL other pending instances of the same recurring meeting
+        meeting_id = db.get_meeting_id_for_zoom_id(zoom_id)
+        bulk_count = 0
+        if meeting_id:
+            bulk_count = db.bulk_approve_by_meeting_id(meeting_id, team, playlist, user['email'])
 
         # Invalidate cache
         cache.delete("stats")
@@ -296,12 +303,13 @@ async def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict 
                 "approved_by": user['email'],
                 "team": team,
                 "playlist": playlist,
+                "bulk_count": bulk_count,
                 "timestamp": datetime.now().isoformat()
             })
         except Exception:
             pass  # WebSocket broadcast is non-critical
 
-        return {"status": "Approved"}
+        return {"status": "Approved", "bulk_approved": bulk_count}
     except Exception as e:
         logger.error(f"Approve error for {zoom_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to approve: {str(e)}")

@@ -155,10 +155,19 @@ function RecordingRow({
     }
   };
 
+  const instanceCount = (recording as any).instanceCount || 1;
+
   return (
     <>
       <TableRow>
-        <TableCell className="font-medium">{recording.topic}</TableCell>
+        <TableCell className="font-medium">
+          {recording.topic}
+          {instanceCount > 1 && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              {instanceCount} sessions
+            </span>
+          )}
+        </TableCell>
         <TableCell className="hidden md:table-cell">{new Date(recording.date).toLocaleDateString()}</TableCell>
         <TableCell className="hidden lg:table-cell">{recording.duration}</TableCell>
         <TableCell>
@@ -278,7 +287,8 @@ export function PendingQueue() {
         const mappedQueue = Array.isArray(queueData) ? queueData.map((item: any) => ({
           ...item,
           id: item.zoom_id || item.id,
-          date: item.start_time || item.date_str
+          date: item.start_time || item.date_str,
+          instanceCount: item.instance_count || 1,
         })) : [];
 
         setState({ recordings: mappedQueue, approved: [] });
@@ -305,29 +315,48 @@ export function PendingQueue() {
     };
   }, []);
 
+  const refetchQueue = React.useCallback(async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return;
+    try {
+      const queueData = await api.getQueue();
+      const mappedQueue = Array.isArray(queueData) ? queueData.map((item: any) => ({
+        ...item,
+        id: item.zoom_id || item.id,
+        date: item.start_time || item.date_str,
+        instanceCount: item.instance_count || 1,
+      })) : [];
+      setState({ recordings: mappedQueue, approved: [] });
+      setLastUpdated(new Date());
+    } catch (err) {
+      // silent - will retry on next interval
+    }
+  }, []);
+
   const handleApprove = async (id: string, team: string, playlist: string) => {
     try {
-      // Call backend API to approve
-      await api.approveRecording(id, team, playlist);
+      const result = await api.approveRecording(id, team, playlist);
 
+      const recording = state.recordings.find((r) => r.id === id);
+      const bulkCount = (result as any)?.bulk_approved || 0;
+      const desc = bulkCount > 1
+        ? `"${recording?.topic}" and ${bulkCount - 1} other instance(s) approved.`
+        : `"${recording?.topic}" is being processed.`;
+
+      toast({
+        title: 'Recording Approved',
+        description: desc,
+      });
+
+      // Immediately remove from UI and refetch
       setState((prevState) => ({
         ...prevState,
+        recordings: prevState.recordings.filter((r) => r.id !== id),
         approved: [...prevState.approved, id],
       }));
 
-      const recording = state.recordings.find((r) => r.id === id);
-      toast({
-        title: 'Recording Approved',
-        description: `"${recording?.topic}" is being processed.`,
-      });
-
-      // Remove from list after a delay
-      setTimeout(() => {
-        setState((prevState) => ({
-          ...prevState,
-          recordings: prevState.recordings.filter((r) => r.id !== id),
-        }));
-      }, 2000);
+      // Refetch to get accurate state from server
+      setTimeout(refetchQueue, 500);
     } catch (error: any) {
       toast({
         variant: "destructive",

@@ -129,6 +129,35 @@ class Database:
                 return False
 
     def get_pending(self):
+        """Get pending recordings, grouped by meeting_id.
+
+        For recurring meetings (same meeting_id), only returns the LATEST instance
+        with a count of how many total instances exist. This prevents the queue
+        from showing 15 rows for the same recurring meeting.
+        """
+        with self._lock:
+            cur = self._get_cursor()
+            # Get the latest recording per meeting_id (or per zoom_id if no meeting_id)
+            cur.execute("""
+                SELECT r.*, sub.instance_count
+                FROM recordings r
+                INNER JOIN (
+                    SELECT
+                        COALESCE(meeting_id, zoom_id) as group_key,
+                        MAX(start_time) as max_start,
+                        COUNT(*) as instance_count
+                    FROM recordings
+                    WHERE status = 'PENDING'
+                    GROUP BY COALESCE(meeting_id, zoom_id)
+                ) sub ON COALESCE(r.meeting_id, r.zoom_id) = sub.group_key
+                    AND r.start_time = sub.max_start
+                WHERE r.status = 'PENDING'
+                ORDER BY r.start_time DESC
+            """)
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_pending_all(self):
+        """Get ALL pending recordings without grouping (for internal processing)."""
         with self._lock:
             cur = self._get_cursor()
             cur.execute("SELECT * FROM recordings WHERE status = 'PENDING' ORDER BY start_time DESC")
@@ -209,6 +238,39 @@ class Database:
                 self.conn.commit()
             except Exception as e:
                 logger.error(f"DB Error update_recording({zoom_id}): {e}")
+
+    def bulk_approve_by_meeting_id(self, meeting_id, team, playlist, approved_by):
+        """Approve ALL pending recordings with the same meeting_id.
+
+        When a user approves one instance of a recurring meeting,
+        this approves all other pending instances too.
+        Returns the number of recordings approved.
+        """
+        with self._lock:
+            try:
+                cur = self._get_cursor()
+                cur.execute("""
+                    UPDATE recordings
+                    SET status = 'APPROVED', team = ?, playlist = ?, approved_by = ?
+                    WHERE status = 'PENDING'
+                    AND meeting_id = ?
+                """, (team, playlist, approved_by, meeting_id))
+                count = cur.rowcount
+                self.conn.commit()
+                if count > 0:
+                    logger.info(f"Bulk approved {count} recording(s) for meeting_id {meeting_id}")
+                return count
+            except Exception as e:
+                logger.error(f"DB Error bulk_approve_by_meeting_id: {e}")
+                return 0
+
+    def get_meeting_id_for_zoom_id(self, zoom_id):
+        """Get the meeting_id associated with a zoom_id (UUID)."""
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT meeting_id FROM recordings WHERE zoom_id = ?", (zoom_id,))
+            row = cur.fetchone()
+            return row[0] if row else None
 
     def add_log(self, level, message):
         with self._lock:

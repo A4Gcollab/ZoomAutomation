@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, ReactNode } from 'react';
 import {
     onAuthStateChanged,
     GoogleAuthProvider,
@@ -28,15 +28,18 @@ type UserContextType = {
 
 const UserContext = createContext<UserContextType | undefined>(undefined);
 
+// Maximum time to wait for auth state (prevents infinite loading)
+const AUTH_TIMEOUT_MS = 5000;
+
 const setUserProfile = async (firestore: any, user: User, additionalData: any = {}) => {
     if (!user) return;
-    const userRef = doc(firestore, `users/${user.uid}`);
-    const snapshot = await getDoc(userRef);
+    try {
+        const userRef = doc(firestore, `users/${user.uid}`);
+        const snapshot = await getDoc(userRef);
 
-    if (!snapshot.exists()) {
-        const { displayName, email, photoURL } = user;
-        const createdAt = new Date();
-        try {
+        if (!snapshot.exists()) {
+            const { displayName, email, photoURL } = user;
+            const createdAt = new Date();
             await setDoc(userRef, {
                 uid: user.uid,
                 displayName,
@@ -45,9 +48,10 @@ const setUserProfile = async (firestore: any, user: User, additionalData: any = 
                 createdAt,
                 ...additionalData,
             });
-        } catch (error) {
-            console.error("Error creating user document", error);
         }
+    } catch (error) {
+        console.error("Error creating user document (non-blocking):", error);
+        // Don't throw - profile creation is non-blocking
     }
 };
 
@@ -57,10 +61,28 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const router = useRouter();
     const [user, setUser] = useState<User | null>(null);
     const [loading, setLoading] = useState(true);
+    const authInitialized = useRef(false);
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
     useEffect(() => {
+        // Set a timeout to ensure loading doesn't hang forever
+        timeoutRef.current = setTimeout(() => {
+            if (loading && !authInitialized.current) {
+                console.warn("Auth: Timeout reached, forcing loading to false");
+                setLoading(false);
+            }
+        }, AUTH_TIMEOUT_MS);
+
         // Use onIdTokenChanged to handle token refreshes automatically
         const unsubscribe = auth.onIdTokenChanged(async (user) => {
+            authInitialized.current = true;
+
+            // Clear the timeout since we got a response
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+                timeoutRef.current = null;
+            }
+
             if (user) {
                 try {
                     const token = await user.getIdToken();
@@ -68,21 +90,22 @@ export function UserProvider({ children }: { children: ReactNode }) {
                     localStorage.setItem('auth_token', token);
                     console.log("Auth: Saved token into localStorage");
 
-                    // Only update profile/state if this is a sign-in or initial load (not just token refresh)
-                    // We can check if we already have the user in state to avoid re-fetching profile too often
-                    // But for simplicity, we'll ensure profile exists
-                    await setUserProfile(firestore, user);
+                    // Set user immediately, profile creation happens in background
                     setUser(user);
+                    setLoading(false);
 
-                    // Note: Redirects are handled in the component (page.tsx)
+                    // Profile creation is non-blocking
+                    setUserProfile(firestore, user).catch(console.error);
                 } catch (error) {
                     console.error("Error getting token:", error);
+                    setUser(null);
+                    setLoading(false);
                 }
             } else {
                 localStorage.removeItem('auth_token');
                 setUser(null);
+                setLoading(false);
             }
-            setLoading(false);
         });
 
         // Handle redirect result if needed (though we use popup now)
@@ -93,7 +116,12 @@ export function UserProvider({ children }: { children: ReactNode }) {
             }
         }).catch(console.error);
 
-        return () => unsubscribe();
+        return () => {
+            unsubscribe();
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+        };
     }, [auth, firestore, router]);
 
     const signInWithGoogle = async () => {

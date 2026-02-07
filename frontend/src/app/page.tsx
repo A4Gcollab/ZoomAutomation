@@ -2,7 +2,7 @@
 
 import { useUser } from "@/firebase/auth/use-user";
 import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import DashboardLayout from "@/components/dashboard-layout";
 import { CompletedHistory } from "@/components/dashboard/completed-history";
 import { ErrorLogs } from "@/components/dashboard/error-logs";
@@ -14,42 +14,42 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 export default function Home() {
   const { user, loading } = useUser();
   const router = useRouter();
+  const [redirecting, setRedirecting] = useState(false);
 
   useEffect(() => {
     // Only redirect to login if we're done loading AND there's no user
     // This prevents redirect loops when coming back from Google OAuth
-    if (!loading && !user) {
-      // Small delay to ensure Firebase auth state has fully initialized
-      const timer = setTimeout(() => {
-        router.push('/login');
-      }, 100);
-      return () => clearTimeout(timer);
+    if (!loading && !user && !redirecting) {
+      setRedirecting(true);
+      router.push('/login');
     }
-  }, [user, loading, router]);
+  }, [user, loading, router, redirecting]);
 
-  // Show loading spinner while checking auth state
-  if (loading) {
+  // Show loading spinner while checking auth state or redirecting
+  if (loading || (!user && !redirecting)) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div>
+      <div className="flex h-screen w-full items-center justify-center flex-col gap-4">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground text-sm">Loading...</p>
       </div>
     );
   }
 
-  // If not loading but no user, show loading while redirect happens
+  // If redirecting to login
   if (!user) {
     return (
-      <div className="flex h-screen w-full items-center justify-center">
-        <div className="animate-spin rounded-full h-32 w-32 border-t-2 border-b-2 border-primary"></div>
+      <div className="flex h-screen w-full items-center justify-center flex-col gap-4">
+        <div className="animate-spin rounded-full h-16 w-16 border-t-2 border-b-2 border-primary"></div>
+        <p className="text-muted-foreground text-sm">Redirecting to login...</p>
       </div>
     );
   }
 
   return (
     <DashboardLayout>
-      <div className="flex-1 space-y-6 p-4 md:p-8">
-        <div className="flex items-center justify-between space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">
+      <div className="flex-1 space-y-4 sm:space-y-6 p-3 sm:p-4 md:p-8">
+        <div className="flex items-center justify-between">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">
             Dashboard
           </h1>
         </div>
@@ -57,10 +57,19 @@ export default function Home() {
         <ServiceControl />
 
         <Tabs defaultValue="pending" className="space-y-4">
-          <TabsList>
-            <TabsTrigger value="pending">Pending Queue</TabsTrigger>
-            <TabsTrigger value="completed">Completed History</TabsTrigger>
-            <TabsTrigger value="logs">System Logs</TabsTrigger>
+          <TabsList className="w-full sm:w-auto grid grid-cols-3 sm:inline-flex">
+            <TabsTrigger value="pending" className="text-xs sm:text-sm">
+              <span className="hidden sm:inline">Pending Queue</span>
+              <span className="sm:hidden">Pending</span>
+            </TabsTrigger>
+            <TabsTrigger value="completed" className="text-xs sm:text-sm">
+              <span className="hidden sm:inline">Completed History</span>
+              <span className="sm:hidden">History</span>
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="text-xs sm:text-sm">
+              <span className="hidden sm:inline">System Logs</span>
+              <span className="sm:hidden">Logs</span>
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="pending" className="space-y-4">
             <PendingQueue />

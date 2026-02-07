@@ -65,35 +65,42 @@ export function CompletedHistory() {
 
   // Fetch history from backend
   React.useEffect(() => {
+    let isMounted = true;
+
     const fetchHistory = async () => {
-      // Check for token first
       const token = localStorage.getItem('auth_token');
       if (!token) return;
 
       try {
-        setLoading(true);
+        if (isMounted) setLoading(true);
         const history = await api.getHistory(100);
 
-        // Map backend fields to frontend expected format
+        if (!isMounted) return;
+
         const mappedHistory = Array.isArray(history) ? history.map((item: any) => ({
           ...item,
-          id: item.zoom_id || item.id, // Handle backend using zoom_id
-          processedAt: item.created_at || item.date_str || new Date().toISOString(), // Ensure valid date
-          approvedBy: item.approved_by || item.approvedBy || 'System'
+          id: item.zoom_id || item.id,
+          processedAt: item.processed_at || item.created_at || item.date_str || new Date().toISOString(),
+          approvedBy: item.approved_by || item.approvedBy || 'System',
+          youtubeUrl: item.youtube_url || item.youtubeUrl,
+          driveUrl: item.drive_url || item.driveUrl,
         })) : [];
 
         setData(mappedHistory);
       } catch (error) {
+        if (!isMounted) return;
         console.error('Failed to fetch history:', error);
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchHistory();
-    // Refresh every 30 seconds
     const interval = setInterval(fetchHistory, 30000);
-    return () => clearInterval(interval);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
   }, []);
 
   const sortedData = React.useMemo(() => {

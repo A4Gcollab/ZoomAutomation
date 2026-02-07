@@ -255,53 +255,55 @@ export function PendingQueue() {
   const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
 
+  const [error, setError] = React.useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
+
   // Fetch queue and options from backend
   React.useEffect(() => {
+    let isMounted = true;
+
     const fetchData = async () => {
-      // Check if we have a token first
       const token = localStorage.getItem('auth_token');
-      if (!token) {
-        console.log('No auth token found, skipping PendingQueue fetch');
-        return;
-      }
+      if (!token) return;
 
       try {
-        setLoading(true);
+        if (isMounted) setLoading(true);
         const [queueData, options] = await Promise.all([
           api.getQueue(),
           api.getOptions()
         ]);
 
-        // Map backend zoom_id to frontend id
+        if (!isMounted) return;
+
         const mappedQueue = Array.isArray(queueData) ? queueData.map((item: any) => ({
           ...item,
-          id: item.zoom_id || item.id, // Handle backend using zoom_id
-          date: item.start_time || item.date_str // Ensure date exists
+          id: item.zoom_id || item.id,
+          date: item.start_time || item.date_str
         })) : [];
 
         setState({ recordings: mappedQueue, approved: [] });
         setTeams(options.teams || []);
         setPlaylists(options.playlists || []);
-      } catch (error) {
-        console.error('Failed to fetch queue data:', error);
-        // Only show toast if it's not an auth error (redirect handled elsewhere)
-        if (!(error instanceof Error) || !error.message.includes('Unauthorized')) {
-          toast({
-            variant: "destructive",
-            title: "Failed to Load",
-            description: "Could not fetch pending recordings from server"
-          });
+        setError(null);
+        setLastUpdated(new Date());
+      } catch (err) {
+        if (!isMounted) return;
+        console.error('Failed to fetch queue data:', err);
+        if (!(err instanceof Error) || !err.message.includes('Unauthorized')) {
+          setError('Could not connect to server. Retrying...');
         }
       } finally {
-        setLoading(false);
+        if (isMounted) setLoading(false);
       }
     };
 
     fetchData();
-    // Refresh every 30 seconds
     const interval = setInterval(fetchData, 30000);
-    return () => clearInterval(interval);
-  }, [toast]);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleApprove = async (id: string, team: string, playlist: string) => {
     try {
@@ -370,16 +372,37 @@ export function PendingQueue() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Pending Queue</CardTitle>
-        <CardDescription>
-          Recordings waiting for approval and assignment.
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Pending Queue</CardTitle>
+            <CardDescription>
+              Recordings waiting for approval and assignment.
+              {lastUpdated && (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  Updated: {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </CardDescription>
+          </div>
+          {error && (
+            <span className="text-xs text-destructive animate-pulse">{error}</span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="rounded-md border">
           <Table>
             <TableBody>
-              {state.recordings.length > 0 ? (
+              {loading && state.recordings.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-primary"></div>
+                      Loading recordings...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : state.recordings.length > 0 ? (
                 state.recordings.map((recording) => (
                   <RecordingRow
                     key={recording.id}

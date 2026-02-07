@@ -1,4 +1,4 @@
-// API Client for Backend Communication
+// API Client for Backend Communication - Hardened with retry logic
 import { logger } from './logger';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -10,20 +10,39 @@ const getAuthToken = (): string | null => {
     return localStorage.getItem('auth_token');
 };
 
-// API Request Helper
+// Retry helper with exponential backoff
+async function withRetry<T>(
+    fn: () => Promise<T>,
+    retries: number = 2,
+    initialDelay: number = 1000
+): Promise<T> {
+    let lastError: Error | null = null;
+    for (let i = 0; i <= retries; i++) {
+        try {
+            return await fn();
+        } catch (error: any) {
+            lastError = error;
+            // Don't retry auth errors or client errors (4xx)
+            if (error.message?.includes('Unauthorized') || error.message?.includes('HTTP 4')) {
+                throw error;
+            }
+            if (i < retries) {
+                const delay = initialDelay * Math.pow(2, i);
+                logger.warn(`API retry ${i + 1}/${retries} in ${delay}ms: ${error.message}`);
+                await new Promise(resolve => setTimeout(resolve, delay));
+            }
+        }
+    }
+    throw lastError;
+}
+
+// API Request Helper with timeout
 async function apiRequest<T>(
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    timeoutMs: number = 30000
 ): Promise<T> {
     const token = getAuthToken();
-
-    // Debug logging for token
-    if (!token) {
-        logger.warn('API Request: No auth token found in localStorage');
-    } else {
-        // Log first few chars for security safe debugging
-        logger.debug(`API Request: Found token (${token.substring(0, 10)}...)`);
-    }
 
     const headers: HeadersInit = {
         'Content-Type': 'application/json',
@@ -31,53 +50,56 @@ async function apiRequest<T>(
         ...options.headers,
     };
 
-    // Log headers (excluding sensitive full token)
-    logger.debug(`API Request ${endpoint} Headers:`, {
-        ...headers,
-        'X-Token': token ? '(present)' : '(missing)'
-    });
+    // Add timeout via AbortController
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        ...options,
-        headers,
-    });
+    try {
+        const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+            ...options,
+            headers,
+            signal: controller.signal,
+        });
 
-    if (response.status === 401) {
-        // Token expired or invalid
-        if (typeof window !== 'undefined') {
-            localStorage.removeItem('auth_token');
-            window.location.href = '/login';
-        }
-        throw new Error('Unauthorized');
-    }
+        clearTimeout(timeoutId);
 
-    if (!response.ok) {
-        let errorData;
-        try {
-            errorData = await response.json();
-        } catch (e) {
-            errorData = { detail: 'Unknown error (failed to parse JSON)' };
-        }
-
-        logger.error('API Error Response:', response.status, errorData);
-
-        let errorMessage = `HTTP ${response.status}`;
-        if (errorData.detail) {
-            if (typeof errorData.detail === 'string') {
-                errorMessage = errorData.detail;
-            } else {
-                // Handle Pydantic validation errors (array of objects)
-                errorMessage = JSON.stringify(errorData.detail);
+        if (response.status === 401) {
+            if (typeof window !== 'undefined') {
+                localStorage.removeItem('auth_token');
+                window.location.href = '/login';
             }
+            throw new Error('Unauthorized');
         }
 
-        throw new Error(errorMessage);
-    }
+        if (!response.ok) {
+            let errorData;
+            try {
+                errorData = await response.json();
+            } catch (e) {
+                errorData = { detail: 'Unknown error' };
+            }
 
-    return response.json();
+            let errorMessage = `HTTP ${response.status}`;
+            if (errorData.detail) {
+                errorMessage = typeof errorData.detail === 'string'
+                    ? errorData.detail
+                    : JSON.stringify(errorData.detail);
+            }
+
+            throw new Error(errorMessage);
+        }
+
+        return response.json();
+    } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+            throw new Error(`Request timeout after ${timeoutMs}ms`);
+        }
+        throw error;
+    }
 }
 
-// API Methods
+// API Methods - all GET requests auto-retry on network errors
 export const api = {
     // Auth
     login: async (googleToken: string) => {
@@ -89,34 +111,38 @@ export const api = {
 
     // Health
     health: async () => {
-        return apiRequest<{ status: string }>('/health');
+        return withRetry(() => apiRequest<{ status: string }>('/health'));
     },
 
     healthDetailed: async () => {
-        return apiRequest<any>('/health/detailed');
+        return withRetry(() => apiRequest<any>('/health/detailed'));
     },
 
     // Stats
     getStats: async () => {
-        return apiRequest<{ completed: number; pending: number }>('/stats');
+        return withRetry(() =>
+            apiRequest<{ completed: number; pending: number; errors: number; processing: number; approved: number }>('/stats')
+        );
     },
 
     // Queue
     getQueue: async () => {
-        return apiRequest<any[]>('/queue');
+        return withRetry(() => apiRequest<any[]>('/queue'));
     },
 
     // History
     getHistory: async (limit: number = 50) => {
-        return apiRequest<any[]>(`/history?limit=${limit}`);
+        return withRetry(() => apiRequest<any[]>(`/history?limit=${limit}`));
     },
 
     // Options (Teams & Playlists)
     getOptions: async () => {
-        return apiRequest<{ teams: string[]; playlists: string[] }>('/options');
+        return withRetry(() =>
+            apiRequest<{ teams: string[]; playlists: string[] }>('/options')
+        );
     },
 
-    // Approve Recording
+    // Approve Recording - no retry (mutation)
     approveRecording: async (zoomId: string, team: string, playlist: string) => {
         return apiRequest<{ status: string }>(`/approve/${zoomId}`, {
             method: 'POST',
@@ -126,17 +152,23 @@ export const api = {
 
     // Logs
     getLogs: async (lines: number = 100, level: string = 'INFO') => {
-        return apiRequest<{ logs: any[]; total: number }>(`/logs?lines=${lines}&level=${level}`);
+        return withRetry(() =>
+            apiRequest<{ logs: any[]; total: number }>(`/logs?lines=${lines}&level=${level}`)
+        );
     },
 
     // Errors
     getErrors: async (lines: number = 50) => {
-        return apiRequest<{ logs: any[] }>(`/errors?lines=${lines}`);
+        return withRetry(() =>
+            apiRequest<{ logs: any[] }>(`/errors?lines=${lines}`)
+        );
     },
 
     // Service Control
     getServiceStatus: async () => {
-        return apiRequest<{ status: string; running: boolean; uptime: number }>('/service/status');
+        return withRetry(() =>
+            apiRequest<{ status: string; running: boolean; uptime: number }>('/service/status')
+        );
     },
 
     startService: async () => {
@@ -154,61 +186,61 @@ export const api = {
     restartService: async () => {
         return apiRequest<{ success: boolean; message: string }>('/service/restart', {
             method: 'POST',
-        });
+        }, 15000); // 15s timeout for restart
     },
 };
 
-// WebSocket Manager
+// WebSocket Manager - more resilient with unlimited reconnects
 export class WebSocketManager {
     private ws: WebSocket | null = null;
     private reconnectAttempts = 0;
-    private maxReconnectAttempts = 5;
+    private maxReconnectAttempts = 999; // Essentially unlimited
     private listeners: Map<string, Set<Function>> = new Map();
     private reconnectTimeout: NodeJS.Timeout | null = null;
 
     connect() {
         if (this.ws?.readyState === WebSocket.OPEN) return;
 
-        this.ws = new WebSocket(WS_URL);
+        try {
+            this.ws = new WebSocket(WS_URL);
 
-        this.ws.onopen = () => {
-            logger.info('WebSocket connected');
-            this.reconnectAttempts = 0;
-            this.emit('connected', null);
-        };
+            this.ws.onopen = () => {
+                logger.info('WebSocket connected');
+                this.reconnectAttempts = 0;
+                this.emit('connected', null);
+            };
 
-        this.ws.onmessage = (event) => {
-            try {
-                const data = JSON.parse(event.data);
-                this.emit(data.type, data);
-            } catch (error) {
-                logger.error('WebSocket message parse error:', error);
-            }
-        };
+            this.ws.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    this.emit(data.type, data);
+                } catch (error) {
+                    // Silently ignore parse errors
+                }
+            };
 
-        this.ws.onclose = () => {
-            logger.info('WebSocket disconnected');
-            this.emit('disconnected', null);
+            this.ws.onclose = () => {
+                this.emit('disconnected', null);
+                this.reconnect();
+            };
+
+            this.ws.onerror = () => {
+                this.emit('error', null);
+            };
+        } catch (error) {
+            // WebSocket constructor can throw
             this.reconnect();
-        };
-
-        this.ws.onerror = (error) => {
-            logger.error('WebSocket error:', error);
-            this.emit('error', error);
-        };
+        }
     }
 
     private reconnect() {
         if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-            logger.error('Max reconnection attempts reached');
-            this.emit('max_reconnect_reached', null);
             return;
         }
 
         this.reconnectAttempts++;
-        const delay = Math.min(2000 * this.reconnectAttempts, 32000);
-
-        logger.info(`Reconnecting in ${delay}ms (attempt ${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
+        // Cap at 60 seconds between reconnects
+        const delay = Math.min(2000 * Math.pow(1.5, this.reconnectAttempts - 1), 60000);
 
         this.reconnectTimeout = setTimeout(() => {
             this.connect();
@@ -232,7 +264,13 @@ export class WebSocketManager {
     private emit(event: string, data: any) {
         const callbacks = this.listeners.get(event);
         if (callbacks) {
-            callbacks.forEach((cb) => cb(data));
+            callbacks.forEach((cb) => {
+                try {
+                    cb(data);
+                } catch (e) {
+                    // Don't let listener errors crash the WS manager
+                }
+            });
         }
     }
 

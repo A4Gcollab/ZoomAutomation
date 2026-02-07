@@ -216,13 +216,18 @@ class ZoomClient:
         Useful for refreshing metadata before download.
         """
         url = f"{self.base_url}/meetings/{meeting_id}/recordings"
-        
+
         resp = requests.get(url, headers=self.get_headers())
         if resp.status_code == 404:
             self.logger.warning(f"Meeting {meeting_id} recordings not found (404).")
             return None
         if resp.status_code != 200:
             self.logger.error(f"Zoom API Error (get_meeting_recordings): {resp.status_code} - {resp.text}")
-        
+
         resp.raise_for_status()
         return resp.json()
+
+    # Alias for backward compatibility
+    def get_recording_details(self, meeting_id):
+        """Alias for get_meeting_recordings."""
+        return self.get_meeting_recordings(meeting_id)

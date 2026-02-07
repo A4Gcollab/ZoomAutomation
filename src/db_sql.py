@@ -2,106 +2,154 @@
 import sqlite3
 import json
 import logging
-from datetime import datetime
+import threading
+from datetime import datetime, timedelta
 from src.config import DATA_DIR
 
 DB_PATH = DATA_DIR / "vong_v2.db"
 logger = logging.getLogger("DB")
 
+
 class Database:
     def __init__(self):
+        self._lock = threading.Lock()
         self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
         self._init_db()
 
+    def _get_cursor(self):
+        """Get a cursor with automatic reconnection if the connection is dead."""
+        try:
+            cur = self.conn.cursor()
+            cur.execute("SELECT 1")  # Test connection
+            return cur
+        except Exception:
+            logger.warning("Database connection lost, reconnecting...")
+            self.conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+            self.conn.row_factory = sqlite3.Row
+            return self.conn.cursor()
+
     def _init_db(self):
-        cur = self.conn.cursor()
-        
-        # Recordings Table
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS recordings (
-            zoom_id TEXT PRIMARY KEY,
-            account_name TEXT,
-            topic TEXT,
-            start_time TEXT,
-            date_str TEXT,
-            status TEXT DEFAULT 'PENDING',
-            team TEXT,
-            playlist TEXT,
-            approved_by TEXT,
-            video_url TEXT,
-            transcript_url TEXT,
-            youtube_url TEXT,
-            drive_url TEXT,
-            metadata JSON,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        # Logs Table (for persistent history)
-        cur.execute('''
-        CREATE TABLE IF NOT EXISTS system_logs (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            level TEXT,
-            message TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-        ''')
-        
-        self.conn.commit()
+        with self._lock:
+            cur = self.conn.cursor()
+
+            # Recordings Table
+            cur.execute('''
+            CREATE TABLE IF NOT EXISTS recordings (
+                zoom_id TEXT PRIMARY KEY,
+                account_name TEXT,
+                topic TEXT,
+                start_time TEXT,
+                date_str TEXT,
+                status TEXT DEFAULT 'PENDING',
+                team TEXT,
+                playlist TEXT,
+                approved_by TEXT,
+                video_url TEXT,
+                transcript_url TEXT,
+                youtube_url TEXT,
+                drive_url TEXT,
+                metadata JSON,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                error_message TEXT,
+                retry_count INTEGER DEFAULT 0,
+                processed_at TEXT,
+                deletion_ready_at TEXT,
+                zoom_deletion_status TEXT,
+                zoom_deleted_at TEXT,
+                zoom_deletion_error TEXT
+            )
+            ''')
+
+            # Logs Table (for persistent history)
+            cur.execute('''
+            CREATE TABLE IF NOT EXISTS system_logs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                level TEXT,
+                message TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            ''')
+
+            self.conn.commit()
+
+            # Auto-migrate: add columns that might be missing from older schemas
+            self._migrate_columns(cur)
+
+    def _migrate_columns(self, cur):
+        """Add any missing columns to existing tables."""
+        new_columns = [
+            ("error_message", "TEXT"),
+            ("retry_count", "INTEGER DEFAULT 0"),
+            ("processed_at", "TEXT"),
+            ("deletion_ready_at", "TEXT"),
+            ("zoom_deletion_status", "TEXT"),
+            ("zoom_deleted_at", "TEXT"),
+            ("zoom_deletion_error", "TEXT"),
+        ]
+
+        for col_name, col_type in new_columns:
+            try:
+                cur.execute(f"ALTER TABLE recordings ADD COLUMN {col_name} {col_type}")
+                self.conn.commit()
+                logger.info(f"Migrated: added column '{col_name}' to recordings")
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     def add_recording(self, zoom_id, data):
         """Insert or Ignore new recording."""
-        try:
-            cur = self.conn.cursor()
-            # extract basic fields
-            topic = data.get('topic', '')
-            start_time = data.get('start_time', '')
-            date_str = start_time[:10] if start_time else ''
-            acc_name = data.get('account_name', '')
-            
-            cur.execute('''
-                INSERT OR IGNORE INTO recordings 
-                (zoom_id, account_name, topic, start_time, date_str, metadata)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (zoom_id, acc_name, topic, start_time, date_str, json.dumps(data)))
-            self.conn.commit()
-            return cur.rowcount > 0 # True if inserted
-        except Exception as e:
-            logger.error(f"DB Error add_recording: {e}")
-            return False
+        with self._lock:
+            try:
+                cur = self._get_cursor()
+                topic = data.get('topic', '')
+                start_time = data.get('start_time', '')
+                date_str = start_time[:10] if start_time else ''
+                acc_name = data.get('account_name', '')
+
+                cur.execute('''
+                    INSERT OR IGNORE INTO recordings
+                    (zoom_id, account_name, topic, start_time, date_str, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                ''', (zoom_id, acc_name, topic, start_time, date_str, json.dumps(data)))
+                self.conn.commit()
+                return cur.rowcount > 0
+            except Exception as e:
+                logger.error(f"DB Error add_recording: {e}")
+                return False
 
     def get_pending(self):
-        cur = self.conn.cursor()
-        cur.execute("SELECT * FROM recordings WHERE status = 'PENDING' ORDER BY start_time DESC")
-        return [dict(row) for row in cur.fetchall()]
-    
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT * FROM recordings WHERE status = 'PENDING' ORDER BY start_time DESC")
+            return [dict(row) for row in cur.fetchall()]
+
     def get_approved(self):
         """Get recordings that have been approved and are ready for processing."""
-        cur = self.conn.cursor()
-        cur.execute("SELECT * FROM recordings WHERE status = 'APPROVED' ORDER BY start_time DESC")
-        return [dict(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT * FROM recordings WHERE status = 'APPROVED' ORDER BY start_time DESC")
+            return [dict(row) for row in cur.fetchall()]
 
     def get_history(self, limit=50):
-        cur = self.conn.cursor()
-        cur.execute("SELECT * FROM recordings WHERE status != 'PENDING' ORDER BY created_at DESC LIMIT ?", (limit,))
-        return [dict(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT * FROM recordings WHERE status != 'PENDING' ORDER BY created_at DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
 
     def get_options(self):
         """Fetch distinct teams and playlists from DB + Config."""
-        cur = self.conn.cursor()
-        
-        # 1. DB Options
-        cur.execute("SELECT DISTINCT team FROM recordings WHERE team IS NOT NULL AND team != ''")
-        db_teams = set(row[0] for row in cur.fetchall())
-        
-        cur.execute("SELECT DISTINCT playlist FROM recordings WHERE playlist IS NOT NULL AND playlist != ''")
-        db_playlists = set(row[0] for row in cur.fetchall())
-        
-        # 2. Config Options (playlists.json)
-        import json
+        with self._lock:
+            cur = self._get_cursor()
+
+            cur.execute("SELECT DISTINCT team FROM recordings WHERE team IS NOT NULL AND team != ''")
+            db_teams = set(row[0] for row in cur.fetchall())
+
+            cur.execute("SELECT DISTINCT playlist FROM recordings WHERE playlist IS NOT NULL AND playlist != ''")
+            db_playlists = set(row[0] for row in cur.fetchall())
+
+        # Config Options (playlists.json) - outside lock since it's file I/O
         from src.config import PLAYLIST_CONFIG_PATH
-        
+
         if PLAYLIST_CONFIG_PATH.exists():
             try:
                 with open(PLAYLIST_CONFIG_PATH, 'r') as f:
@@ -113,36 +161,130 @@ class Database:
                             db_playlists.add(pl['playlist_name'])
             except Exception as e:
                 logger.error(f"Failed to load playlist config: {e}")
-        
+
         return {"teams": sorted(list(db_teams)), "playlists": sorted(list(db_playlists))}
-    
+
     def get_stats(self):
-        cur = self.conn.cursor()
-        cur.execute("SELECT COUNT(*) FROM recordings WHERE status='COMPLETED'")
-        completed = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM recordings WHERE status='PENDING'")
-        pending = cur.fetchone()[0]
-        return {"completed": completed, "pending": pending}
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT COUNT(*) FROM recordings WHERE status='COMPLETED'")
+            completed = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM recordings WHERE status='PENDING'")
+            pending = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM recordings WHERE status='ERROR'")
+            errors = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM recordings WHERE status='PROCESSING'")
+            processing = cur.fetchone()[0]
+            cur.execute("SELECT COUNT(*) FROM recordings WHERE status='APPROVED'")
+            approved = cur.fetchone()[0]
+            return {
+                "completed": completed,
+                "pending": pending,
+                "errors": errors,
+                "processing": processing,
+                "approved": approved,
+            }
 
     def update_recording(self, zoom_id, updates):
         """updates is a dict of col: val"""
-        set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
-        values = list(updates.values())
-        values.append(zoom_id)
-        
-        cur = self.conn.cursor()
-        cur.execute(f"UPDATE recordings SET {set_clause} WHERE zoom_id = ?", values)
-        self.conn.commit()
+        with self._lock:
+            try:
+                set_clause = ", ".join([f"{k} = ?" for k in updates.keys()])
+                values = list(updates.values())
+                values.append(zoom_id)
+
+                cur = self._get_cursor()
+                cur.execute(f"UPDATE recordings SET {set_clause} WHERE zoom_id = ?", values)
+                self.conn.commit()
+            except Exception as e:
+                logger.error(f"DB Error update_recording({zoom_id}): {e}")
 
     def add_log(self, level, message):
-        cur = self.conn.cursor()
-        cur.execute("INSERT INTO system_logs (level, message) VALUES (?, ?)", (level, message))
-        self.conn.commit()
+        with self._lock:
+            try:
+                cur = self._get_cursor()
+                cur.execute("INSERT INTO system_logs (level, message) VALUES (?, ?)", (level, message))
+                self.conn.commit()
+            except Exception as e:
+                logger.error(f"DB Error add_log: {e}")
 
     def get_recent_logs(self, limit=100):
-        cur = self.conn.cursor()
-        cur.execute("SELECT * FROM system_logs ORDER BY id DESC LIMIT ?", (limit,))
-        return [dict(row) for row in cur.fetchall()]
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT * FROM system_logs ORDER BY id DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    # === AUTO-RECOVERY METHODS ===
+
+    def recover_stuck_processing(self, max_age_minutes=60):
+        """Reset PROCESSING records that have been stuck for too long back to APPROVED."""
+        with self._lock:
+            try:
+                cur = self._get_cursor()
+                # Find PROCESSING records older than max_age_minutes
+                # We use created_at as a proxy since we don't track processing_started_at
+                cutoff = (datetime.now() - timedelta(minutes=max_age_minutes)).isoformat()
+                cur.execute("""
+                    UPDATE recordings
+                    SET status = 'APPROVED', error_message = 'Auto-recovered: stuck in PROCESSING'
+                    WHERE status = 'PROCESSING'
+                    AND (processed_at IS NULL OR processed_at < ?)
+                """, (cutoff,))
+                count = cur.rowcount
+                self.conn.commit()
+                if count > 0:
+                    logger.info(f"Auto-recovered {count} stuck PROCESSING record(s)")
+                return count
+            except Exception as e:
+                logger.error(f"DB Error recover_stuck_processing: {e}")
+                return 0
+
+    def recover_error_records(self, max_retries=3):
+        """Reset ERROR records back to PENDING for retry (up to max_retries)."""
+        with self._lock:
+            try:
+                cur = self._get_cursor()
+                cur.execute("""
+                    UPDATE recordings
+                    SET status = 'PENDING',
+                        retry_count = COALESCE(retry_count, 0) + 1,
+                        error_message = NULL
+                    WHERE status = 'ERROR'
+                    AND COALESCE(retry_count, 0) < ?
+                """, (max_retries,))
+                count = cur.rowcount
+                self.conn.commit()
+                if count > 0:
+                    logger.info(f"Auto-recovered {count} ERROR record(s) for retry")
+                return count
+            except Exception as e:
+                logger.error(f"DB Error recover_error_records: {e}")
+                return 0
+
+    def get_permanently_failed(self):
+        """Get records that have exceeded max retries."""
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("""
+                SELECT * FROM recordings
+                WHERE status = 'ERROR' AND COALESCE(retry_count, 0) >= 3
+                ORDER BY created_at DESC
+            """)
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_ready_for_deletion(self):
+        """Get COMPLETED recordings ready for Zoom deletion after safety period."""
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("""
+                SELECT * FROM recordings
+                WHERE status = 'COMPLETED'
+                AND deletion_ready_at IS NOT NULL
+                AND deletion_ready_at <= ?
+                AND (zoom_deletion_status IS NULL OR zoom_deletion_status = 'PENDING')
+            """, (datetime.now().isoformat(),))
+            return [dict(row) for row in cur.fetchall()]
+
 
 # Singleton
 db = Database()

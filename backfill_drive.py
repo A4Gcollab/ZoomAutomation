@@ -118,13 +118,13 @@ def main():
                     z_client = None
                     for acc in ZOOM_ACCOUNTS:
                         if acc['name'] == account_name:
-                            z_client = ZoomClient(acc['account_id'], acc['client_id'], acc['client_secret'])
+                            z_client = ZoomClient(acc)
                             break
                     
                     if not z_client and ZOOM_ACCOUNTS:
                         # Fallback to the first account if name mismatch
                         acc = ZOOM_ACCOUNTS[0]
-                        z_client = ZoomClient(acc['account_id'], acc['client_id'], acc['client_secret'])
+                        z_client = ZoomClient(acc)
                         
                     if z_client:
                         print(f"  Downloading original from Zoom...")

@@ -23,11 +23,14 @@ DOWNLOADS = 'downloads'
 def main():
     # Init Drive client
     from src.drive_client import DriveClient
-    from src.config import DRIVE_SERVICE_ACCOUNT_FILE, DRIVE_ROOT_FOLDER_ID
+    from src import config
+
+    sa_path = str(config.DRIVE_SERVICE_ACCOUNT_FILE) if hasattr(config, 'DRIVE_SERVICE_ACCOUNT_FILE') and config.DRIVE_SERVICE_ACCOUNT_FILE else 'secrets/service_account.json'
+    root_folder = config.DRIVE_ROOT_FOLDER_ID if hasattr(config, 'DRIVE_ROOT_FOLDER_ID') else None
 
     drive = DriveClient(
-        service_account_path=str(DRIVE_SERVICE_ACCOUNT_FILE),
-        root_folder_id=DRIVE_ROOT_FOLDER_ID
+        auth_mode='service_account',
+        service_account_file=sa_path
     )
 
     # Load playlist config for Drive folder mapping
@@ -71,7 +74,7 @@ def main():
         drive_folder_id, transcript_folder_id = get_drive_folder(playlist)
         if not drive_folder_id:
             # Use root folder as fallback
-            drive_folder_id = DRIVE_ROOT_FOLDER_ID
+            drive_folder_id = root_folder
             print(f"  No Drive folder for '{playlist}', using root folder")
 
         # Download compressed video from YouTube

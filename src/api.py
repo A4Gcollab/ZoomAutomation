@@ -268,7 +268,7 @@ def get_options(user: dict = Depends(get_current_user)):
         return {"teams": [], "playlists": []}
 
 
-@app.post("/approve/{zoom_id}")
+@app.post("/approve/{zoom_id:path}")
 async def approve_recording(zoom_id: str, payload: dict = Body(...), user: dict = Depends(get_current_user)):
     team = payload.get("team")
     playlist = payload.get("playlist")

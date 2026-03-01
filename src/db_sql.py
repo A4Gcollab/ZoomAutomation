@@ -90,6 +90,7 @@ class Database:
             ("zoom_deletion_status", "TEXT"),
             ("zoom_deleted_at", "TEXT"),
             ("zoom_deletion_error", "TEXT"),
+            ("drive_uploaded_at", "TEXT"),
         ]
 
         for col_name, col_type in new_columns:
@@ -116,12 +117,15 @@ class Database:
                 date_str = start_time[:10] if start_time else ''
                 acc_name = data.get('account_name', '')
                 mid = meeting_id or str(data.get('id', ''))
+                team = data.get('team', None)
+                playlist = data.get('playlist', None)
+                status = 'APPROVED' if (team and playlist) else 'PENDING_PLAYLIST'
 
                 cur.execute('''
                     INSERT OR IGNORE INTO recordings
-                    (zoom_id, meeting_id, account_name, topic, start_time, date_str, metadata)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                ''', (zoom_id, mid, acc_name, topic, start_time, date_str, json.dumps(data)))
+                    (zoom_id, meeting_id, account_name, topic, start_time, date_str, team, playlist, status, metadata)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (zoom_id, mid, acc_name, topic, start_time, date_str, team, playlist, status, json.dumps(data)))
                 self.conn.commit()
                 return cur.rowcount > 0
             except Exception as e:
@@ -147,11 +151,11 @@ class Database:
                         MAX(start_time) as max_start,
                         COUNT(*) as instance_count
                     FROM recordings
-                    WHERE status = 'PENDING'
+                    WHERE status IN ('PENDING', 'PENDING_PLAYLIST')
                     GROUP BY COALESCE(meeting_id, zoom_id)
                 ) sub ON COALESCE(r.meeting_id, r.zoom_id) = sub.group_key
                     AND r.start_time = sub.max_start
-                WHERE r.status = 'PENDING'
+                WHERE r.status IN ('PENDING', 'PENDING_PLAYLIST')
                 ORDER BY r.start_time DESC
             """)
             return [dict(row) for row in cur.fetchall()]
@@ -174,6 +178,34 @@ class Database:
         with self._lock:
             cur = self._get_cursor()
             cur.execute("SELECT * FROM recordings WHERE status != 'PENDING' ORDER BY created_at DESC LIMIT ?", (limit,))
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_compressing(self):
+        """Get recordings that are waiting for YouTube compression to finish."""
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT * FROM recordings WHERE status = 'YOUTUBE_COMPRESSING' ORDER BY start_time DESC")
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_pending_playlist(self):
+        """Get recordings awaiting admin playlist assignment."""
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("SELECT * FROM recordings WHERE status = 'PENDING_PLAYLIST' ORDER BY start_time DESC")
+            return [dict(row) for row in cur.fetchall()]
+
+    def get_ready_for_zoom_deletion(self, delay_hours=6):
+        """Get COMPLETED recordings where Drive upload happened >delay_hours ago."""
+        with self._lock:
+            cur = self._get_cursor()
+            cur.execute("""
+                SELECT * FROM recordings 
+                WHERE status = 'COMPLETED' 
+                AND drive_uploaded_at IS NOT NULL
+                AND zoom_deletion_status IS NULL
+                AND datetime(drive_uploaded_at) <= datetime('now', ? || ' hours')
+                ORDER BY drive_uploaded_at ASC
+            """, (str(-delay_hours),))
             return [dict(row) for row in cur.fetchall()]
 
     def get_options(self):
@@ -209,7 +241,7 @@ class Database:
             cur = self._get_cursor()
             cur.execute("SELECT COUNT(*) FROM recordings WHERE status='COMPLETED'")
             completed = cur.fetchone()[0]
-            cur.execute("SELECT COUNT(*) FROM recordings WHERE status='PENDING'")
+            cur.execute("SELECT COUNT(*) FROM recordings WHERE status IN ('PENDING', 'PENDING_PLAYLIST')")
             pending = cur.fetchone()[0]
             cur.execute("SELECT COUNT(*) FROM recordings WHERE status='ERROR'")
             errors = cur.fetchone()[0]
@@ -252,7 +284,7 @@ class Database:
                 cur.execute("""
                     UPDATE recordings
                     SET status = 'APPROVED', team = ?, playlist = ?, approved_by = ?
-                    WHERE status = 'PENDING'
+                    WHERE status IN ('PENDING', 'PENDING_PLAYLIST')
                     AND meeting_id = ?
                 """, (team, playlist, approved_by, meeting_id))
                 count = cur.rowcount

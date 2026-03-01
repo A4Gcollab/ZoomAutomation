@@ -15,3 +15,5 @@ aiofiles
 httpx
 prometheus-client
 psutil
+
+yt-dlp

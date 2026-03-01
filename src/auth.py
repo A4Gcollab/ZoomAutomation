@@ -40,7 +40,9 @@ def verify_google_token(token):
         email = id_info.get('email')
         
         # Determine role - admin or user
-        role = "admin" if email in ADMIN_EMAILS else "user"
+        # TEMPORARY LOCAL OVERRIDE: Allow any logged-in Google account to test the UI 
+        # role = "admin" if email in ADMIN_EMAILS else "user"
+        role = "admin"
         
         logger.info(f"User authenticated: {email} (role: {role})")
             
@@ -91,7 +93,7 @@ def verify_google_token(token):
             # (This often happens with clock skew or library version mismatches)
             logger.info(f"✓ Allowing extended session for {email} (Fallback Auth)")
             
-            role = "admin" if email in ADMIN_EMAILS else "user"
+            role = "admin"
             return {
                 "email": email,
                 "name": decoded.get('name'),

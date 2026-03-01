@@ -99,12 +99,9 @@ export function UserProvider({ children }: { children: ReactNode }) {
     const signInWithGoogle = async () => {
         const provider = new GoogleAuthProvider();
         try {
-            const result = await signInWithPopup(auth, provider);
-            if (result.user) {
-                await setUserProfile(firestore, result.user);
-                setUser(result.user);
-                router.push('/');
-            }
+            // Use redirect instead of popup to avoid Windows intercepting the OAuth flow
+            await signInWithRedirect(auth, provider);
+            // After redirect, the result is handled by getRedirectResult in useEffect above
         } catch (error) {
             console.error('Google sign-in error:', error);
             throw error;

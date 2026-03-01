@@ -48,7 +48,7 @@ def main():
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("""
-        SELECT zoom_id, topic, youtube_url, playlist, transcript_url, video_url, account_name
+        SELECT zoom_id, topic, youtube_url, playlist, transcript_url, video_url, account_name, metadata
         FROM recordings 
         WHERE status IN ('COMPLETED', 'YOUTUBE_COMPRESSING') 
         AND youtube_url IS NOT NULL
@@ -78,6 +78,16 @@ def main():
             print(f"  No Drive folder for '{playlist}', using root folder")
 
         zoom_url = d.get('video_url')
+        if not zoom_url and d.get('metadata'):
+            try:
+                meta = json.loads(d['metadata'])
+                for rf in meta.get('recording_files', []):
+                    if rf.get('file_extension') == 'MP4':
+                        zoom_url = rf.get('download_url')
+                        break
+            except:
+                pass
+
         account_name = d.get('account_name', 'Zoom Account 1')
         
         # Try YouTube first

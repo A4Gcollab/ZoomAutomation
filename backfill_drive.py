@@ -77,8 +77,13 @@ def main():
             drive_folder_id = root_folder
             print(f"  No Drive folder for '{playlist}', using root folder")
 
-        # Download compressed video from YouTube
-        compressed_path = os.path.join(DOWNLOADS, f"{zoom_id}_compressed.mp4")
+        zoom_url = d.get('video_url')
+        account_name = d.get('account_name', 'Zoom Account 1')
+        
+        # Try YouTube first
+        compressed_path = os.path.join(DOWNLOADS, f"{zoom_id}_video.mp4")
+        dl_success = False
+        
         try:
             import yt_dlp
             ydl_opts = {
@@ -89,9 +94,39 @@ def main():
             }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.extract_info(youtube_url, download=True)
+            dl_success = True
+            print("  Downloaded from YouTube (compressed)")
+        except Exception as e:
+            print(f"  YouTube download failed ({str(e)[:100]}). Trying Zoom fallback...")
+            
+            # Fallback to Zoom
+            if zoom_url:
+                try:
+                    from src.config import get_zoom_clients
+                    z_clients = get_zoom_clients()
+                    z_client = z_clients.get(account_name)
+                    if z_client:
+                        print(f"  Downloading original from Zoom...")
+                        if z_client.download_file(zoom_url, compressed_path):
+                            dl_success = True
+                            print("  Downloaded from Zoom successfully")
+                        else:
+                            print("  Zoom download returned False")
+                    else:
+                        print(f"  Zoom client not found for {account_name}")
+                except Exception as ze:
+                    print(f"  Zoom fallback failed: {ze}")
+            else:
+                print("  No Zoom URL available for fallback")
 
+        if not dl_success:
+            print("  Could not download video from anywhere. Skipping.")
+            failed += 1
+            continue
+
+        try:
             file_size_mb = os.path.getsize(compressed_path) / (1024*1024)
-            print(f"  Downloaded: {file_size_mb:.1f} MB")
+            print(f"  Final File Size: {file_size_mb:.1f} MB")
 
             # Upload to Drive
             safe_title = "".join(c for c in topic if c.isalnum() or c in " ._-")[:100]

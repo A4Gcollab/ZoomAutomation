@@ -29,8 +29,9 @@ def main():
     root_folder = config.DRIVE_ROOT_FOLDER_ID if hasattr(config, 'DRIVE_ROOT_FOLDER_ID') else None
 
     drive = DriveClient(
-        auth_mode='service_account',
-        service_account_file=sa_path
+        auth_mode='user',
+        token_path='secrets/token_drive.json',
+        client_secret_path='secrets/client_secret.json'
     )
 
     # Load playlist config for Drive folder mapping

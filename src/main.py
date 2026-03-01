@@ -1,5 +1,6 @@
 
 import logging
+import googleapiclient.errors
 import time
 import threading
 import traceback
@@ -62,6 +63,10 @@ class BackgroundService(threading.Thread):
                 logger.info("Phase 2: Processing approved tasks...")
                 self._process_queue()
 
+                # 2.5 PROCESS COMPRESSION QUEUE
+                logger.info("Phase 2.5: Processing compression queue...")
+                self._process_compressing_queue()
+
                 # 3. CLEANUP (Delayed Zoom Deletions)
                 logger.info("Phase 3: Checking for recordings ready for Zoom deletion...")
                 self._cleanup_zoom_recordings()
@@ -98,9 +103,10 @@ class BackgroundService(threading.Thread):
         if not self.drive:
             try:
                 self.drive = DriveClient(
-                    auth_mode='user',
+                    auth_mode=config.DRIVE_AUTH_MODE,
                     token_path=config.DRIVE_TOKEN_PATH,
-                    client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH
+                    client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH,
+                    service_account_file=config.DRIVE_SERVICE_ACCOUNT_FILE
                 )
                 logger.info("  Drive client ready")
             except Exception as e:
@@ -173,8 +179,12 @@ class BackgroundService(threading.Thread):
             logger.warning(f"Failed to find sheet row for {zoom_id}: {e}")
             return None
 
-    def _resolve_team_playlist(self, meeting_id):
-        """Match Meeting ID to Config."""
+    def _resolve_team_playlist(self, meeting_id, topic=''):
+        """Match recording to playlist by meeting ID first, then topic keywords.
+        
+        Matched videos -> auto-APPROVED (zero approval).
+        Unmatched videos -> PENDING_PLAYLIST (admin picks playlist).
+        """
         import json
         from src.config import PLAYLIST_CONFIG_PATH
 
@@ -185,12 +195,44 @@ class BackgroundService(threading.Thread):
             with open(PLAYLIST_CONFIG_PATH, 'r') as f:
                 data = json.load(f)
                 meeting_id = str(meeting_id)
+                
+                # Priority 1: Match by meeting ID (exact)
                 for pl in data.get('playlists', []):
                     if meeting_id in pl.get('meeting_ids', []):
                         return pl.get('category'), pl.get('playlist_name')
-        except Exception:
-            pass
+                
+                # Priority 2: Match by topic keywords (case-insensitive)
+                topic_lower = topic.lower()
+                for pl in data.get('playlists', []):
+                    for keyword in pl.get('keywords', []):
+                        if keyword.lower() in topic_lower:
+                            return pl.get('category'), pl.get('playlist_name')
+                
+                # No match -> admin picks (PENDING_PLAYLIST)
+                logger.info(f"No keyword match for '{topic}' -> PENDING_PLAYLIST for admin")
+        except Exception as e:
+            logger.error(f"Error resolving playlist: {e}")
         return None, None
+
+    def _get_playlist_id(self, playlist_name):
+        """Look up YouTube playlist ID from playlist name in config."""
+        import json
+        from src.config import PLAYLIST_CONFIG_PATH
+
+        if not PLAYLIST_CONFIG_PATH.exists():
+            return None
+
+        try:
+            with open(PLAYLIST_CONFIG_PATH, 'r') as f:
+                data = json.load(f)
+                for pl in data.get('playlists', []):
+                    if pl.get('playlist_name') == playlist_name:
+                        return pl.get('playlist_id')
+                # Fallback: return default (Miscellaneous) playlist ID
+                return data.get('default_playlist_id')
+        except Exception as e:
+            logger.error(f"Error getting playlist ID: {e}")
+        return None
 
     def _get_drive_folders(self, playlist_name):
         """Get Drive folder IDs for a given playlist name."""
@@ -231,7 +273,8 @@ class BackgroundService(threading.Thread):
                             uuid = r.get('uuid', str(r['id']))
                             meeting_id = str(r['id'])
 
-                            team, playlist = self._resolve_team_playlist(meeting_id)
+                            topic = r.get('topic', '')
+                            team, playlist = self._resolve_team_playlist(meeting_id, topic)
                             if team:
                                 r['team'] = team
                             if playlist:
@@ -241,6 +284,8 @@ class BackgroundService(threading.Thread):
                                 count += 1
                                 if team:
                                     logger.info(f"Auto-Matched {uuid} (meeting {meeting_id}) -> {team} / {playlist}")
+                                else:
+                                    logger.info(f"No match for '{topic}' ({uuid}) -> PENDING_PLAYLIST")
 
                                 # Add to Google Sheets (non-critical)
                                 if self.sheets:
@@ -323,6 +368,10 @@ class BackgroundService(threading.Thread):
                 if not recording_data:
                     logger.warning(f"   UUID lookup failed, trying meeting ID: {meeting_id}")
                     recording_data = zoom_client.get_recording_details(meeting_id)
+                
+                if not recording_data:
+                    raise Exception(f"Recording not found on Zoom (UUID: {zoom_id}, Meeting ID: {meeting_id})")
+
                 video_url = None
                 transcript_url = None
 
@@ -371,15 +420,22 @@ class BackgroundService(threading.Thread):
                     )
                     youtube_url = f"https://youtu.be/{video_id}"
                     logger.info(f"   YouTube: {youtube_url}")
-                except Exception as yt_err:
-                    error_str = str(yt_err)
+                except googleapiclient.errors.HttpError as e:
+                    raw_error = e.content.decode('utf-8') if hasattr(e, 'content') else str(e)
+                    logger.error(f"YOUTUBE UPLOAD HTTP ERROR: {e.resp.status} - {e.reason} - {raw_error}")
                     # Detect quota exceeded
-                    if 'quotaExceeded' in error_str or 'dailyLimitExceeded' in error_str:
+                    if 'quotaExceeded' in raw_error or 'dailyLimitExceeded' in raw_error:
                         self._pause_youtube_for_quota()
                         db.update_recording(zoom_id, {"status": "APPROVED", "error_message": "YouTube quota exceeded, will retry"})
-                        self._safe_cleanup_files(video_path, transcript_path)
-                        continue
-                    raise  # Re-raise non-quota errors
+                    else:
+                        db.update_recording(zoom_id, {"status": "ERROR", "error_message": f"YouTube API Error: {e.reason} - {raw_error}"})
+                    self._safe_cleanup_files(video_path, transcript_path)
+                    continue
+                except Exception as e:
+                    logger.error(f"YOUTUBE UPLOAD UNKNOWN ERROR: {e}")
+                    db.update_recording(zoom_id, {"status": "ERROR", "error_message": str(e)})
+                    self._safe_cleanup_files(video_path, transcript_path)
+                    continue
 
                 # Update sheets with YouTube URL (non-critical)
                 if self.sheets and sheet_row:
@@ -396,109 +452,69 @@ class BackgroundService(threading.Thread):
                     except Exception as e:
                         logger.warning(f"   Caption upload failed (non-critical): {e}")
 
-                # Add to playlist (non-critical)
+                # Add to playlist (CRITICAL - must succeed)
+                playlist_added = False
                 if video_id:
-                    try:
-                        self.youtube.add_to_playlist(video_id, playlist)
-                        logger.info(f"   Added to playlist: {playlist}")
-                    except Exception as e:
-                        logger.warning(f"   Playlist add failed (non-critical): {e}")
+                    yt_playlist_id = self._get_playlist_id(playlist)
+                    if yt_playlist_id:
+                        for attempt in range(3):
+                            try:
+                                self.youtube.add_to_playlist(video_id, yt_playlist_id)
+                                logger.info(f"   ✅ Added to playlist: {playlist} ({yt_playlist_id})")
+                                playlist_added = True
+                                break
+                            except Exception as e:
+                                logger.error(f"   ❌ Playlist add attempt {attempt+1}/3 failed: {e}")
+                                if attempt < 2:
+                                    import time
+                                    time.sleep(5)  # Wait before retry
+                        if not playlist_added:
+                            logger.error(f"   ❌ PLAYLIST ADD FAILED after 3 attempts for {video_id} -> {playlist}")
+                            db.add_log("ERROR", f"Playlist add failed: {zoom_id} -> {playlist} ({yt_playlist_id})")
+                    else:
+                        logger.error(f"   ❌ No YouTube playlist ID found for: {playlist}")
 
-                # 3. UPLOAD to Drive (Backup)
+                # 3. UPLOAD transcript to Drive (if available)
                 drive_url = None
                 drive_video_id = None
+                
+                if self.drive and transcript_url and os.path.exists(transcript_path):
+                    logger.info(f"   Uploading transcript to Drive...")
+                    drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
+                    if transcript_folder_id:
+                        try:
+                            self.drive.upload_file(transcript_path, transcript_filename, transcript_folder_id)
+                            logger.info(f"   Transcript backed up to Drive")
+                        except Exception as e:
+                            logger.warning(f"   Transcript Drive upload failed (non-critical): {e}")
 
-                if not self.drive:
-                    logger.warning("   Drive client not initialized, skipping Drive upload")
-                else:
-                    try:
-                        logger.info(f"   Uploading to Drive...")
-                        drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
-
-                        if not drive_folder_id:
-                            logger.warning(f"   No Drive folder for playlist '{playlist}'. Skipping Drive upload.")
-                        else:
-                            drive_video_id = self.drive.upload_file(video_path, video_filename, drive_folder_id)
-                            drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
-                            logger.info(f"   Drive Video: {drive_url}")
-
-                            # Upload transcript to transcript folder (non-critical)
-                            if os.path.exists(transcript_path) and transcript_folder_id:
-                                try:
-                                    self.drive.upload_file(transcript_path, transcript_filename, transcript_folder_id)
-                                    logger.info(f"   Transcript backed up to Drive")
-                                except Exception as e:
-                                    logger.warning(f"   Transcript Drive upload failed (non-critical): {e}")
-
-                            # Update sheets with Drive URL (non-critical)
-                            if self.sheets and sheet_row:
-                                try:
-                                    self.sheets.update_row_status(sheet_row, "PROCESSING", youtube_url=youtube_url, drive_url=drive_url)
-                                except Exception:
-                                    pass
-                    except Exception as e:
-                        logger.error(f"   Drive upload failed: {e}")
-                        # Continue - YouTube upload succeeded, Drive is secondary
-
-                # 4. VERIFY UPLOADS
-                logger.info(f"   Verifying uploads...")
-                youtube_verified = False
-                drive_verified = False
-
-                if video_id and self.youtube:
-                    try:
-                        yt_status = self.youtube.get_video_status(video_id)
-                        if yt_status in ['uploaded', 'processed']:
-                            youtube_verified = True
-                            logger.info(f"   YouTube verified: {yt_status}")
-                        else:
-                            logger.warning(f"   YouTube status: {yt_status}")
-                    except Exception as e:
-                        logger.warning(f"   YouTube verification failed (non-critical): {e}")
-
-                if drive_video_id:
-                    drive_verified = True
-                    logger.info(f"   Drive verified")
-
-                # 5. SCHEDULE DELAYED DELETION
-                if youtube_verified and drive_verified:
-                    deletion_ready_time = datetime.now() + timedelta(hours=config.DELETE_DELAY_HOURS)
-                    logger.info(f"   Zoom deletion scheduled for: {deletion_ready_time.strftime('%Y-%m-%d %H:%M:%S')}")
-                    db.update_recording(zoom_id, {
-                        "deletion_ready_at": deletion_ready_time.isoformat(),
-                        "zoom_deletion_status": "PENDING"
-                    })
-                else:
-                    logger.warning(f"   Uploads not fully verified - Zoom deletion NOT scheduled")
-                    logger.warning(f"      YouTube: {youtube_verified}, Drive: {drive_verified}")
-
-                # 6. CLEANUP local files
+                # 4. CLEANUP local files
                 self._safe_cleanup_files(video_path, transcript_path)
 
-                # 7. UPDATE status
+                # 5. UPDATE status to YOUTUBE_COMPRESSING
                 update_data = {
-                    "status": "COMPLETED",
+                    "status": "YOUTUBE_COMPRESSING",
                     "processed_at": datetime.now().isoformat()
                 }
                 if youtube_url:
                     update_data["youtube_url"] = youtube_url
-                if drive_url:
-                    update_data["drive_url"] = drive_url
 
                 db.update_recording(zoom_id, update_data)
-                db.add_log("INFO", f"Completed: {zoom_id} - {youtube_title}")
-                logger.info(f"   COMPLETED: {zoom_id}")
+                db.add_log("INFO", f"Uploaded to YouTube, awaiting compression: {zoom_id} - {youtube_title}")
+                logger.info(f"   YOUTUBE_COMPRESSING: {zoom_id}")
 
-                # Final sheets update (non-critical)
+                # Update sheets to show compressing
                 if self.sheets and sheet_row:
                     try:
-                        self.sheets.update_row_status(sheet_row, "COMPLETED", youtube_url=youtube_url or "", drive_url=drive_url or "")
+                        self.sheets.update_row_status(sheet_row, "COMPRESSING", youtube_url=youtube_url or "")
                     except Exception:
                         pass
 
             except Exception as e:
                 logger.error(f"   Processing Failed {zoom_id}: {e}")
                 logger.error(f"   Traceback:\n{traceback.format_exc()}")
+                with open("traceback_error.txt", "w") as f:
+                    f.write(traceback.format_exc())
 
                 retry_count = task.get('retry_count') or 0
                 db.update_recording(zoom_id, {
@@ -516,11 +532,116 @@ class BackgroundService(threading.Thread):
                         pass
 
                 # Clean up any leftover files
-                video_path_check = os.path.join(DOWNLOAD_DIR, f"*{zoom_id}*")
+                video_path_check = os.path.join(config.DOWNLOAD_DIR, f"*{zoom_id}*")
                 self._safe_cleanup_files(
-                    os.path.join(DOWNLOAD_DIR, task.get('video_filename', '')),
-                    os.path.join(DOWNLOAD_DIR, task.get('transcript_filename', ''))
+                    os.path.join(config.DOWNLOAD_DIR, task.get('video_filename', '')),
+                    os.path.join(config.DOWNLOAD_DIR, task.get('transcript_filename', ''))
                 )
+
+        if tasks:
+            logger.info("Done processing approved tasks")
+
+    def _process_compressing_queue(self):
+        tasks = db.get_compressing()
+        if not tasks:
+            return
+
+        logger.info(f"Found {len(tasks)} tasks waiting for YouTube compression")
+        import yt_dlp
+
+        for task in tasks:
+            zoom_id = task['zoom_id']
+            youtube_url = task.get('youtube_url')
+            topic = task['topic']
+            playlist = task.get('playlist', 'Unknown')
+
+            if not youtube_url:
+                db.update_recording(zoom_id, {"status": "ERROR", "error_message": "Missing YouTube URL for compression"})
+                continue
+
+            logger.info(f"Checking compression status for: {zoom_id} ({youtube_url})")
+
+            try:
+                # 1. Download Compressed Video from YouTube
+                filename_base = "".join(x for x in topic if x.isalnum() or x in " -_")[:50]
+                compressed_filename = f"{filename_base}_compressed.mp4"
+                compressed_path = os.path.join(config.DOWNLOAD_DIR, compressed_filename)
+                
+                ydl_opts = {
+                    'format': 'best[ext=mp4][height<=720]/best',
+                    'outtmpl': str(compressed_path),
+                    'quiet': True,
+                    'no_warnings': True
+                }
+
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    logger.info("   Attempting yt-dlp download...")
+                    # This will throw DownloadError if the video is unavailable/processing
+                    info = ydl.extract_info(youtube_url, download=True)
+                    logger.info(f"   Downloaded compressed video. Size: {os.path.getsize(compressed_path) / (1024*1024):.2f} MB")
+
+                # 2. Upload Compressed Video to Google Drive
+                drive_url = None
+                drive_video_id = None
+                if self.drive:
+                    logger.info(f"   Uploading compressed video to Drive...")
+                    drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
+
+                    if not drive_folder_id:
+                        logger.warning(f"   No Drive folder for playlist '{playlist}'.")
+                    else:
+                        drive_video_id = self.drive.upload_file(str(compressed_path), compressed_filename, drive_folder_id)
+                        drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
+                        logger.info(f"   Drive Video: {drive_url}")
+
+                # 3. Verify & Complete
+                if drive_video_id or not self.drive:
+                    deletion_ready_time = datetime.now() + timedelta(hours=config.DELETE_DELAY_HOURS)
+                    update_data = {
+                        "status": "COMPLETED",
+                        "drive_url": drive_url,
+                        "deletion_ready_at": deletion_ready_time.isoformat(),
+                        "zoom_deletion_status": "PENDING"
+                    }
+                    if drive_video_id:
+                        update_data["drive_uploaded_at"] = datetime.now().isoformat()
+                    db.update_recording(zoom_id, update_data)
+                    db.add_log("INFO", f"Completed Backup: {zoom_id} - {topic}")
+                    logger.info(f"   COMPLETED: {zoom_id}")
+
+                    # Update Sheets
+                    sheet_row = self._find_sheet_row(zoom_id)
+                    if self.sheets and sheet_row:
+                        try:
+                            self.sheets.update_row_status(sheet_row, "COMPLETED", youtube_url=youtube_url, drive_url=drive_url)
+                        except Exception:
+                            pass
+                else:
+                    logger.warning("   Drive upload failed or skipped, keeping in YOUTUBE_COMPRESSING.")
+
+                # Cleanup local compressed file
+                if os.path.exists(compressed_path):
+                    os.remove(compressed_path)
+
+            except yt_dlp.utils.DownloadError as e:
+                # Video is unavailable or not processed yet
+                logger.info("   Video still processing on YouTube or unavailable. Will retry next cycle.")
+                if os.path.exists(compressed_path):
+                    try: os.remove(compressed_path)
+                    except: pass
+                continue
+            except Exception as e:
+                logger.error(f"   Error in compression queue for {zoom_id}: {e}")
+                logger.error(traceback.format_exc())
+                retry_count = task.get('retry_count', 0)
+                if retry_count < 3:
+                    db.update_recording(zoom_id, {"retry_count": retry_count + 1})
+                else:
+                    db.update_recording(zoom_id, {"status": "ERROR", "error_message": f"yt-dlp error: {e}"})
+                
+                if 'compressed_path' in locals() and os.path.exists(compressed_path):
+                    try: os.remove(compressed_path)
+                    except: pass
 
     def _safe_cleanup_files(self, *paths):
         """Safely remove files, ignoring errors."""
@@ -534,7 +655,7 @@ class BackgroundService(threading.Thread):
     def _cleanup_zoom_recordings(self):
         """Check for completed recordings that are ready for Zoom deletion after safety period."""
         try:
-            ready_for_deletion = db.get_ready_for_deletion()
+            ready_for_deletion = db.get_ready_for_zoom_deletion(delay_hours=6)
 
             if not ready_for_deletion:
                 logger.info("   No recordings ready for Zoom deletion")

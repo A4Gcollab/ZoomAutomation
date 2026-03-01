@@ -168,11 +168,11 @@ class ZoomClient:
         # the user's ZAK token or just the account level OAuth token.
         # Let's try standard Bearer header.
         
-        params = {
-            "access_token": self._get_access_token()
+        headers = {
+            "Authorization": f"Bearer {self._get_access_token()}"
         }
 
-        with requests.get(download_url, params=params, stream=True) as r:
+        with requests.get(download_url, headers=headers, stream=True) as r:
             r.raise_for_status()
             with open(dest_path, 'wb') as f:
                 for chunk in r.iter_content(chunk_size=8192):

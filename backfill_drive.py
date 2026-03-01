@@ -112,9 +112,20 @@ def main():
             # Fallback to Zoom
             if zoom_url:
                 try:
-                    from src.config import get_zoom_clients
-                    z_clients = get_zoom_clients()
-                    z_client = z_clients.get(account_name)
+                    from src.config import ZOOM_ACCOUNTS
+                    from src.zoom_client import ZoomClient
+                    
+                    z_client = None
+                    for acc in ZOOM_ACCOUNTS:
+                        if acc['name'] == account_name:
+                            z_client = ZoomClient(acc['account_id'], acc['client_id'], acc['client_secret'])
+                            break
+                    
+                    if not z_client and ZOOM_ACCOUNTS:
+                        # Fallback to the first account if name mismatch
+                        acc = ZOOM_ACCOUNTS[0]
+                        z_client = ZoomClient(acc['account_id'], acc['client_id'], acc['client_secret'])
+                        
                     if z_client:
                         print(f"  Downloading original from Zoom...")
                         if z_client.download_file(zoom_url, compressed_path):

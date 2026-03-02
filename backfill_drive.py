@@ -103,6 +103,8 @@ def main():
                 'quiet': True,
                 'no_warnings': True
             }
+            if os.path.exists('secrets/youtube_cookies.txt'):
+                ydl_opts['cookiefile'] = 'secrets/youtube_cookies.txt'
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 ydl.extract_info(youtube_url, download=True)
             dl_success = True

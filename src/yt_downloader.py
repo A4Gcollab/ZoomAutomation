@@ -11,14 +11,13 @@ def download_youtube_video(video_url, output_path):
     """
     ydl_opts = {
         'format': 'best[ext=mp4]/best', # Avoid 'bestvideo+bestaudio' as it requires FFmpeg
-        'outtmpl': output_path, # output_path should include extension or be full path?
-        # yt-dlp appends ext, so we often strip it from outtmpl or handle it
-        # Let's force filename
         'outtmpl': str(output_path), 
         'quiet': True,
         'no_warnings': True,
         'merge_output_format': 'mp4'
     }
+    if os.path.exists('secrets/youtube_cookies.txt'):
+        ydl_opts['cookiefile'] = 'secrets/youtube_cookies.txt'
     
     # If output_path exists, yt-dlp might skip or overwrite.
     # Note: 'outtmpl' in yt-dlp corresponds to the template. 

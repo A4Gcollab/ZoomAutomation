@@ -63,7 +63,7 @@ PLAYLIST_CONFIG_PATH = CONFIG_DIR / "playlists.json"
 
 # Drive Configuration
 ENABLE_DRIVE_UPLOAD = os.getenv("ENABLE_DRIVE_UPLOAD", "false").lower() == "true"
-DRIVE_AUTH_MODE = os.getenv("DRIVE_AUTH_MODE", "service_account").lower() # 'user' or 'service_account'
+DRIVE_AUTH_MODE = os.getenv("DRIVE_AUTH_MODE", "user").lower() # 'user' or 'service_account'
 
 # Google Docs Logging
 GOOGLE_DOCS_LOG_ID = os.getenv("GOOGLE_DOCS_LOG_ID")

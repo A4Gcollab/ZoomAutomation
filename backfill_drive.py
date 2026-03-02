@@ -98,7 +98,7 @@ def main():
         try:
             import yt_dlp
             ydl_opts = {
-                'format': 'best[ext=mp4][height<=720]/best',
+                'format': 'best[ext=mp4][height<=720]/best[ext=mp4]/b',
                 'outtmpl': compressed_path,
                 'quiet': True,
                 'no_warnings': True

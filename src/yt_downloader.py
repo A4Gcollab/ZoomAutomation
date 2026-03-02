@@ -10,7 +10,6 @@ def download_youtube_video(video_url, output_path):
     This retrieves the YouTube-processed version (compressed).
     """
     ydl_opts = {
-        'format': 'best[ext=mp4]/best', # Avoid 'bestvideo+bestaudio' as it requires FFmpeg
         'outtmpl': str(output_path), 
         'quiet': True,
         'no_warnings': True,

@@ -286,6 +286,21 @@ class BackgroundService(threading.Thread):
                                     logger.info(f"Auto-Matched {uuid} (meeting {meeting_id}) -> {team} / {playlist}")
                                 else:
                                     logger.info(f"No match for '{topic}' ({uuid}) -> PENDING_PLAYLIST")
+                            elif team and playlist:
+                                # Auto-upgrade existing PENDING records when keywords now match
+                                try:
+                                    with db._lock:
+                                        cur = db._get_cursor()
+                                        cur.execute("""
+                                            UPDATE recordings 
+                                            SET status = 'APPROVED', team = ?, playlist = ?
+                                            WHERE zoom_id = ? AND status IN ('PENDING', 'PENDING_PLAYLIST')
+                                        """, (team, playlist, uuid))
+                                        db.conn.commit()
+                                        if cur.rowcount > 0:
+                                            logger.info(f"Auto-Upgraded {uuid} from PENDING -> APPROVED ({team} / {playlist})")
+                                except Exception as e:
+                                    logger.warning(f"Auto-upgrade failed for {uuid}: {e}")
 
                                 # Add to Google Sheets (non-critical)
                                 if self.sheets:
@@ -568,7 +583,6 @@ class BackgroundService(threading.Thread):
                 compressed_path = os.path.join(config.DOWNLOAD_DIR, compressed_filename)
                 
                 ydl_opts = {
-                    'format': 'best[ext=mp4][height<=720]/best',
                     'outtmpl': str(compressed_path),
                     'quiet': True,
                     'no_warnings': True

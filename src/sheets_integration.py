@@ -12,22 +12,39 @@ class SheetManager:
         self.sheet_id = sheet_id or config.GOOGLE_SHEET_ID
         # FORCE RELOAD V3
         self.client = gspread.authorize(credentials)
-        try:
-            self.doc = self.client.open_by_key(self.sheet_id)
-            logger.info(f"Connected to Google Sheet: {self.doc.title}")
-            
-            # Cache Tabs Safely
-            self.settings_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_SETTINGS)
-            self.logs_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_LOGS)
-            self.dashboard_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_DASHBOARD)
-            self.main_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_MAIN)
-            
-            # Ensure all tabs exist and have headers
-            self.ensure_tabs()
-            
-        except Exception as e:
-            logger.error(f"Failed to connect to Google Sheet: {e}")
-            raise
+        
+        # Retry with exponential backoff for transient API errors (429, 500, 503)
+        max_retries = 3
+        backoff_times = [10, 30, 60]  # seconds
+        
+        for attempt in range(max_retries + 1):
+            try:
+                self.doc = self.client.open_by_key(self.sheet_id)
+                logger.info(f"Connected to Google Sheet: {self.doc.title}")
+                
+                # Cache Tabs Safely
+                self.settings_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_SETTINGS)
+                self.logs_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_LOGS)
+                self.dashboard_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_DASHBOARD)
+                self.main_tab = self._safe_get_worksheet(SheetSchemaV2.TAB_MAIN)
+                
+                # Ensure all tabs exist and have headers
+                self.ensure_tabs()
+                break  # Success — exit retry loop
+                
+            except gspread.exceptions.APIError as e:
+                error_code = e.response.status_code if hasattr(e, 'response') else 0
+                if error_code in (429, 500, 503) and attempt < max_retries:
+                    wait = backoff_times[attempt]
+                    logger.warning(f"Google Sheets API error {error_code} (attempt {attempt + 1}/{max_retries}). Retrying in {wait}s...")
+                    import time
+                    time.sleep(wait)
+                else:
+                    logger.error(f"Failed to connect to Google Sheet: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Failed to connect to Google Sheet: {e}")
+                raise
 
     def _safe_get_worksheet(self, title):
         """Safely get a worksheet by title, returning None if not found."""

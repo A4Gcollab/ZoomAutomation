@@ -1,11 +1,37 @@
 
 import gspread
 import logging
+import time
+from functools import wraps
 from datetime import datetime
 from src import config
 from src.sheet_schema_v2 import SheetSchemaV2
 
 logger = logging.getLogger("SheetManager")
+
+def retry_on_quota(func):
+    """Decorator to retry Google Sheets API calls on rate limit (429) or server (50x) errors."""
+    @wraps(func)
+    def wrapper(self, *args, **kwargs):
+        max_retries = 3
+        backoff_times = [10, 30, 60]
+        
+        for attempt in range(max_retries + 1):
+            try:
+                return func(self, *args, **kwargs)
+            except gspread.exceptions.APIError as e:
+                error_code = e.response.status_code if hasattr(e, 'response') else 0
+                if error_code in (429, 500, 503) and attempt < max_retries:
+                    wait = backoff_times[attempt]
+                    logger.warning(f"Google Sheets API error {error_code} in {func.__name__} (attempt {attempt + 1}/{max_retries}). Retrying in {wait}s...")
+                    time.sleep(wait)
+                else:
+                    logger.error(f"Failed API call in {func.__name__}: {e}")
+                    raise
+            except Exception as e:
+                logger.error(f"Unexpected error in {func.__name__}: {e}")
+                raise
+    return wrapper
 
 class SheetManager:
     def __init__(self, credentials, sheet_id=None):
@@ -92,6 +118,7 @@ class SheetManager:
         except Exception as e:
             logger.error(f"Failed to ensure worksheets: {e}")
 
+    @retry_on_quota
     def check_command_state(self):
         """
         Poll the Settings tab for the current COMMAND state.
@@ -113,6 +140,7 @@ class SheetManager:
             logger.error(f"Failed to read command state: {e}")
             return SheetSchemaV2.CMD_IDLE
 
+    @retry_on_quota
     def set_command_state(self, state):
         """Reset the command state (e.g. back to IDLE after running)."""
         try:
@@ -124,6 +152,7 @@ class SheetManager:
         except Exception as e:
             logger.error(f"Failed to set command state: {e}")
 
+    @retry_on_quota
     def log_system_status(self, message, level="INFO"):
         """Write a log entry to System_Logs tab."""
         if not self.logs_tab: return
@@ -136,6 +165,7 @@ class SheetManager:
         except Exception:
             pass
 
+    @retry_on_quota
     def update_dashboard(self, processed_count, saved_space_gb):
         """Update Dashboard metrics."""
         if not self.dashboard_tab: return
@@ -149,6 +179,7 @@ class SheetManager:
         except Exception:
             pass
 
+    @retry_on_quota
     def get_existing_ids(self):
         """Get all Meeting IDs currently in the Main Sheet."""
         try:
@@ -160,6 +191,7 @@ class SheetManager:
         except Exception:
             return []
 
+    @retry_on_quota
     def log_new_recordings(self, recordings_list):
         """
         Add new recordings to the sheet in PENDING status.
@@ -213,6 +245,7 @@ class SheetManager:
             return len(new_rows)
         return 0
 
+    @retry_on_quota
     def add_recording(self, rec):
         """Add a single recording to the sheet."""
         zoom_id = str(rec.get('uuid', rec.get('id', '')))
@@ -237,50 +270,47 @@ class SheetManager:
             return True
         return False
 
+    @retry_on_quota
     def get_pending_approvals(self):
         """
         Get rows that are 'PENDING' but have been 'Approved' by a user.
         Validation: Must have 'Approved By', 'Team', and 'Playlist' filled.
         """
-        try:
-            if not self.main_tab: return []
-            all_values = self.main_tab.get_all_values()
-            if not all_values: return []
+        if not self.main_tab: return []
+        all_values = self.main_tab.get_all_values()
+        if not all_values: return []
+        
+        headers = all_values[0]
+        rows = all_values[1:]
+        
+        tasks = []
+        
+        # Indexes (0-based from logic view)
+        # 0: Date, 1: ID, 2: Title, 3: Team, 4: Playlist
+        # 5: Status, 6: Approved By
+        
+        for idx, row in enumerate(rows):
+            if len(row) < 7: continue # Malformed row
             
-            headers = all_values[0]
-            rows = all_values[1:]
+            status = row[5].strip().upper()
+            approved_by = row[6].strip()
+            team = row[3].strip()
+            playlist = row[4].strip()
             
-            tasks = []
-            
-            # Indexes (0-based from logic view)
-            # 0: Date, 1: ID, 2: Title, 3: Team, 4: Playlist
-            # 5: Status, 6: Approved By
-            
-            for idx, row in enumerate(rows):
-                if len(row) < 7: continue # Malformed row
-                
-                status = row[5].strip().upper()
-                approved_by = row[6].strip()
-                team = row[3].strip()
-                playlist = row[4].strip()
-                
-                if status == 'PENDING' and approved_by and team and playlist:
-                    # VALID TASK
-                    tasks.append({
-                        'row_idx': idx + 2, # Sheet is 1-based, +1 for header
-                        'date': row[0],
-                        'meeting_id': row[1],
-                        'topic': row[2],
-                        'team': team,
-                        'playlist': playlist,
-                        'approved_by': approved_by
-                    })
-            return tasks
-            
-        except Exception as e:
-            logger.error(f"Failed to fetch pending approvals: {e}")
-            return []
+            if status == 'PENDING' and approved_by and team and playlist:
+                # VALID TASK
+                tasks.append({
+                    'row_idx': idx + 2, # Sheet is 1-based, +1 for header
+                    'date': row[0],
+                    'meeting_id': row[1],
+                    'topic': row[2],
+                    'team': team,
+                    'playlist': playlist,
+                    'approved_by': approved_by
+                })
+        return tasks
 
+    @retry_on_quota
     def update_row_status(self, row_idx, status, youtube_url="", drive_url=""):
         """Update a row's status and links."""
         try:

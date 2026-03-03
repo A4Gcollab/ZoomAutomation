@@ -102,14 +102,19 @@ def main(run_once=False):
         # --- INITIALIZATION ---
         db = StateManager()
         
-        # 1. Drive & Sheet (Core)
+        # 1. Drive (user OAuth for 2TB personal Drive)
         drive = DriveClient(
             auth_mode=config.DRIVE_AUTH_MODE,
             service_account_file=config.DRIVE_SERVICE_ACCOUNT_FILE,
             client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH,
             token_path=config.DRIVE_TOKEN_PATH
         )
-        sheet_manager = SheetManager(drive.credentials)
+        # Sheets always uses service account (separate from Drive OAuth)
+        sheets_drive = DriveClient(
+            auth_mode='service_account',
+            service_account_file=config.DRIVE_SERVICE_ACCOUNT_FILE
+        )
+        sheet_manager = SheetManager(sheets_drive.credentials)
         sheet_manager.log_system_status("System Booted. Waiting for Command...", "INIT")
         
         # Initialize History Logger
@@ -282,12 +287,18 @@ def main(run_once=False):
                         # C. Upload to YouTube
                         logger.info("Uploading to YouTube...")
                         history_logger.log_step(zoom_id, 'youtube_upload_start', f"Uploading to playlist: {pl_name}")
-                        yt_id = youtube.upload_video(
-                            str(vid_path), 
-                            task['topic'], 
-                            f"Approved by {task['approved_by']}", 
-                            privacy_status="unlisted"
-                        )
+                        try:
+                            yt_id = youtube.upload_video(
+                                str(vid_path), 
+                                task['topic'], 
+                                f"Approved by {task['approved_by']}", 
+                                privacy_status="unlisted"
+                            )
+                        except Exception as yt_err:
+                            if 'quotaExceeded' in str(yt_err):
+                                logger.warning("YouTube daily quota exceeded. Stopping cycle until quota resets (1:30 AM IST).")
+                                raise Exception("YOUTUBE_QUOTA_EXCEEDED")
+                            raise yt_err
                         
                         if pl_id: youtube.add_to_playlist(yt_id, pl_id)
                         if os.path.exists(ts_path): youtube.upload_caption(yt_id, str(ts_path))
@@ -331,6 +342,15 @@ def main(run_once=False):
                         
                         # Cleanup (moved to finally block)
                         
+                        # E. Delete from Zoom Cloud (after successful YouTube upload)
+                        try:
+                            logger.info(f"Deleting recording from Zoom cloud: {zoom_id}")
+                            client.delete_recording(zoom_id)
+                            logger.info(f"Zoom recording deleted: {zoom_id}")
+                            history_logger.log_step(zoom_id, 'zoom_deleted', 'Deleted from Zoom cloud')
+                        except Exception as del_err:
+                            logger.warning(f"Could not delete Zoom recording (may already be gone): {del_err}")
+                        
                         # Mark Complete in TinyDB
                         db.mark_completed(zoom_id)
                         
@@ -360,7 +380,14 @@ def main(run_once=False):
                     except Exception as e:
                         error_msg = str(e)
                         is_expired = "EXPIRED" in error_msg
+                        is_quota = "YOUTUBE_QUOTA_EXCEEDED" in error_msg
                         status_to_set = "EXPIRED" if is_expired else "ERROR"
+                        
+                        # YouTube quota hit: stop processing for the day, don't mark as ERROR
+                        if is_quota:
+                            logger.warning("YouTube quota exhausted for today. Pipeline will resume after 1:30 AM IST.")
+                            sheet_manager.log_system_status("YouTube quota exhausted. Resuming after reset.", "QUOTA")
+                            break  # Stop processing remaining tasks this cycle
                         
                         logger.error(f"Failed task {task.get('topic', 'Unknown')}: {e}")
                         

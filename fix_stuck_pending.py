@@ -1,55 +1,85 @@
+"""
+Force-approve ALL remaining PENDING/PENDING_PLAYLIST videos.
+- First tries to match by keywords in playlists.json
+- If no match, assigns to the default Miscellaneous playlist
+This ensures ZERO videos remain in the Pending Queue.
+"""
 import sys
 sys.path.insert(0, '.')
 import sqlite3
 import json
 from src.config import PLAYLIST_CONFIG_PATH
-from src.db_sql import db
 
-def resolve_team_playlist(meeting_id, topic=''):
-    if not PLAYLIST_CONFIG_PATH.exists():
-        return None, None
-    try:
-        with open(PLAYLIST_CONFIG_PATH, 'r') as f:
-            data = json.load(f)
-            meeting_id = str(meeting_id)
-            
-            for pl in data.get('playlists', []):
-                if meeting_id in pl.get('meeting_ids', []):
-                    return pl.get('category'), pl.get('playlist_name')
-            
-            topic_lower = topic.lower()
-            for pl in data.get('playlists', []):
-                for keyword in pl.get('keywords', []):
-                    if keyword.lower() in topic_lower:
-                        return pl.get('category'), pl.get('playlist_name')
-    except Exception as e:
-        print(f"Error resolving playlist: {e}")
+DB_PATH = 'data/vong_v2.db'
+
+def load_config():
+    with open(str(PLAYLIST_CONFIG_PATH), 'r') as f:
+        return json.load(f)
+
+def resolve_team_playlist(config, meeting_id, topic=''):
+    meeting_id = str(meeting_id)
+    
+    # Priority 1: Match by meeting ID
+    for pl in config.get('playlists', []):
+        if meeting_id in pl.get('meeting_ids', []):
+            return pl.get('category'), pl.get('playlist_name')
+    
+    # Priority 2: Match by topic keywords
+    topic_lower = topic.lower()
+    for pl in config.get('playlists', []):
+        for keyword in pl.get('keywords', []):
+            if keyword.lower() in topic_lower:
+                return pl.get('category'), pl.get('playlist_name')
+    
+    # No match -> use default
     return None, None
 
-def fix_stuck_pending():
-    print("Scanning database for videos stuck in PENDING queue that should be auto-approved...")
-    conn = sqlite3.connect('C:/Users/HP/ZoomAutomation/data/vong_v2.db' if sys.platform == 'win32' else 'data/vong_v2.db')
+def fix_all_pending():
+    config = load_config()
+    default_category = config.get('default_category', 'Miscellaneous')
+    default_playlist = config.get('default_playlist_name', 'Miscellaneous')
+    
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     
-    cur.execute("SELECT zoom_id, meeting_id, topic FROM recordings WHERE status IN ('PENDING', 'PENDING_PLAYLIST')")
+    cur.execute("SELECT zoom_id, meeting_id, topic, status FROM recordings WHERE status IN ('PENDING', 'PENDING_PLAYLIST')")
     rows = cur.fetchall()
     
-    updated = 0
+    print(f"Found {len(rows)} videos still in Pending Queue\n")
+    
+    matched = 0
+    defaulted = 0
+    
     for row in rows:
-        team, playlist = resolve_team_playlist(row['meeting_id'], row['topic'])
+        team, playlist = resolve_team_playlist(config, row['meeting_id'], row['topic'])
+        
         if team and playlist:
             cur.execute("""
                 UPDATE recordings 
                 SET status = 'APPROVED', team = ?, playlist = ? 
                 WHERE zoom_id = ?
             """, (team, playlist, row['zoom_id']))
-            print(f"✅ Auto-Approved: {row['topic']} -> {playlist}")
-            updated += 1
-            
+            print(f"  ✅ MATCHED: {row['topic'][:50]} -> {playlist}")
+            matched += 1
+        else:
+            # Force-assign to default Miscellaneous playlist
+            cur.execute("""
+                UPDATE recordings 
+                SET status = 'APPROVED', team = ?, playlist = ? 
+                WHERE zoom_id = ?
+            """, (default_category, default_playlist, row['zoom_id']))
+            print(f"  📦 DEFAULT: {row['topic'][:50]} -> {default_playlist}")
+            defaulted += 1
+    
     conn.commit()
     conn.close()
-    print(f"\nSuccessfully forced {updated} videos out of the Pending queue and into the Approved pipeline!")
+    
+    print(f"\n{'='*60}")
+    print(f"Results: {matched} matched by keywords, {defaulted} assigned to '{default_playlist}'")
+    print(f"Total: {matched + defaulted} videos moved from PENDING -> APPROVED")
+    print(f"Pending Queue should now be: 0")
+    print(f"{'='*60}")
 
 if __name__ == "__main__":
-    fix_stuck_pending()
+    fix_all_pending()

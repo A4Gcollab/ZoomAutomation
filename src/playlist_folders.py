@@ -15,7 +15,7 @@ PLAYLIST_FOLDER_MAPPING = {
     " 2.2.5 Enablers - PM": "1Tn5ZlkTimYJYyjxH3B_eeJLbnF4T0B6N",
     " 2.2.5 Enablers - OPM & HR": "13otF9gCQahMvGaEF18mXYeKOd5Zp3EXJ",
     " 2.2.5 Enablers - HR": "1LRE1-1zW_1sKtPjX_7xrlb5OmPE3jBhP",
-    "2.2.6 Community Building": "1m9YBC8GQ7yeB0cwAkgtyopAMzwYRb4Tp",
+    "2.2.6 Community Building": "16KiC87V_40yFGe2zp4170HaH-tx2pp4K",
     
     # Short aliases
     "Tech": "1eWxD6uZdvF1Gk9byHl4aB71DyH7mWSWs",
@@ -24,7 +24,7 @@ PLAYLIST_FOLDER_MAPPING = {
     "HR": "1LRE1-1zW_1sKtPjX_7xrlb5OmPE3jBhP",
     "PM": "1-ZdSCOUKHozKaMjCz5RqJkjr0tSKCwaR",
     "RAB": "13FZuXmvh3I_WPn8dKGhCIHQDIAgRfjz5",
-    "Community": "1m9YBC8GQ7yeB0cwAkgtyopAMzwYRb4Tp",
+    "Community": "16KiC87V_40yFGe2zp4170HaH-tx2pp4K",
     "Enablers": "1KuMKFhbPzMoPdfAIlJitrI5BZEsd9-3Q",
 }
 
@@ -37,7 +37,7 @@ TRANSCRIPT_FOLDER_MAPPING = {
     " 2.2.5 Enablers - PM": "1lz4L0josi7NXnwZSdxApGF1gJPW1KZFH",
     " 2.2.5 Enablers - OPM": "1vIMx-FiqoxmN5scG9a4jJbKDN02piJ-7",
     "2.2.5 Enablers - OPM & HR": "1x1ds_HHcLlMM3peBg7UqNWltYjusOfKd",
-    "2.2.6 Community Building": "1ekdVgcqqrGCnZLCUegw4Y79dkc_-wGkB",
+    "2.2.6 Community Building": "16KiC87V_40yFGe2zp4170HaH-tx2pp4K",
     
     # Short aliases
     "Tech": "1gPWSqLGRV7pZ8cqGOyMwMFb94eNjANZy",
@@ -45,7 +45,7 @@ TRANSCRIPT_FOLDER_MAPPING = {
     "Marketing": "1Z-u6SpvGuHRp-sSesmGcHfO4SWXZcsX_",
     "PM": "1lz4L0josi7NXnwZSdxApGF1gJPW1KZFH",
     "RAB": "13SUptwBQ1iL8lqEMWbVDnpemVugXQ5MA",
-    "Community": "1ekdVgcqqrGCnZLCUegw4Y79dkc_-wGkB",
+    "Community": "16KiC87V_40yFGe2zp4170HaH-tx2pp4K",
 }
 
 def get_drive_folder_id(playlist_name: str, for_transcript: bool = False) -> str:

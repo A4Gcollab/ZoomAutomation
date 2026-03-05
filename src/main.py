@@ -370,7 +370,15 @@ class BackgroundService(threading.Thread):
                 if not zoom_client:
                     raise Exception(f"Zoom client not found for account: {account_name}")
 
-                # 1. DOWNLOAD from Zoom
+                # 1. CHECK QUOTA before downloading (avoid wasting bandwidth)
+                if self._is_youtube_quota_paused():
+                    logger.warning(f"   Skipping {zoom_id}: YouTube quota paused (not downloading)")
+                    continue
+
+                if not self.youtube:
+                    raise Exception("YouTube client not initialized")
+
+                # 2. DOWNLOAD from Zoom
                 logger.info(f"   Downloading from Zoom...")
                 video_path = os.path.join(DOWNLOAD_DIR, video_filename)
                 transcript_path = os.path.join(DOWNLOAD_DIR, transcript_filename)
@@ -383,7 +391,7 @@ class BackgroundService(threading.Thread):
                 if not recording_data:
                     logger.warning(f"   UUID lookup failed, trying meeting ID: {meeting_id}")
                     recording_data = zoom_client.get_recording_details(meeting_id)
-                
+
                 if not recording_data:
                     raise Exception(f"Recording not found on Zoom (UUID: {zoom_id}, Meeting ID: {meeting_id})")
 
@@ -409,19 +417,9 @@ class BackgroundService(threading.Thread):
                     except Exception as e:
                         logger.warning(f"   Transcript download failed (non-critical): {e}")
 
-                # 2. UPLOAD to YouTube
+                # 3. UPLOAD to YouTube
                 youtube_url = None
                 video_id = None
-
-                if self._is_youtube_quota_paused():
-                    # Put back to APPROVED - will retry next time quota resets
-                    db.update_recording(zoom_id, {"status": "APPROVED", "error_message": "YouTube quota paused"})
-                    self._safe_cleanup_files(video_path, transcript_path)
-                    logger.warning(f"   Skipping {zoom_id}: YouTube quota paused")
-                    continue
-
-                if not self.youtube:
-                    raise Exception("YouTube client not initialized")
 
                 try:
                     logger.info(f"   Uploading to YouTube...")

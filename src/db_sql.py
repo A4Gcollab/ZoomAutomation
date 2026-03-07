@@ -202,7 +202,7 @@ class Database:
                 SELECT * FROM recordings 
                 WHERE status = 'COMPLETED' 
                 AND drive_uploaded_at IS NOT NULL
-                AND zoom_deletion_status IS NULL
+                AND (zoom_deletion_status IS NULL OR zoom_deletion_status = 'PENDING' OR zoom_deletion_status = '')
                 AND datetime(drive_uploaded_at) <= datetime('now', ? || ' hours')
                 ORDER BY drive_uploaded_at ASC
             """, (str(-delay_hours),))

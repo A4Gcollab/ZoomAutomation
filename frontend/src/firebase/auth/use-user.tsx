@@ -68,15 +68,20 @@ export function UserProvider({ children }: { children: ReactNode }) {
                     localStorage.setItem('auth_token', token);
                     console.log("Auth: Saved token into localStorage");
 
-                    // Only update profile/state if this is a sign-in or initial load (not just token refresh)
-                    // We can check if we already have the user in state to avoid re-fetching profile too often
-                    // But for simplicity, we'll ensure profile exists
-                    await setUserProfile(firestore, user);
+                    // ALWAYS set the user if token works, so we don't boot them out
                     setUser(user);
+
+                    // Attempt to track them in Firestore, but make it wildly non-fatal
+                    try {
+                        await setUserProfile(firestore, user);
+                    } catch (dbError) {
+                        console.error("Firestore user tracking error (non-fatal):", dbError);
+                    }
 
                     // Note: Redirects are handled in the component (page.tsx)
                 } catch (error) {
                     console.error("Error getting token:", error);
+                    setUser(null);
                 }
             } else {
                 localStorage.removeItem('auth_token');

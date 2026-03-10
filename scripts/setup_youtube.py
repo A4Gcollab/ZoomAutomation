@@ -14,10 +14,14 @@ from src import config
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("SetupYouTube")
 
-def setup_youtube_auth():
+def setup_youtube_auth(headless=False):
     """
     Interactive Setup for YouTube OAuth.
-    Generates tokens/token.json for use by the main application.
+    Generates token file for use by the main application.
+    
+    Args:
+        headless: If True, uses console-based flow (no browser needed).
+                  Prints a URL to visit and asks for the authorization code.
     """
     client_secrets_file = config.YOUTUBE_CLIENT_SECRET_PATH
     token_file = config.YOUTUBE_TOKEN_PATH
@@ -35,14 +39,21 @@ def setup_youtube_auth():
     ]
     
     logger.info("Starting YouTube Authentication Flow...")
-    logger.info("A browser window will open. Please log in and approve access.")
     
     try:
         flow = google_auth_oauthlib.flow.InstalledAppFlow.from_client_secrets_file(
             client_secrets_file, scopes)
-            
-        # Run local server for interaction
-        credentials = flow.run_local_server(port=0)
+        
+        if headless:
+            # Console flow — works on headless servers
+            logger.info("Running in HEADLESS mode.")
+            logger.info("A URL will be printed below. Open it in any browser,")
+            logger.info("approve access, and paste the authorization code back here.")
+            credentials = flow.run_console()
+        else:
+            # Browser flow — requires local display
+            logger.info("A browser window will open. Please log in and approve access.")
+            credentials = flow.run_local_server(port=0)
         
         # Save credentials
         with open(token_file, 'wb') as token:
@@ -56,4 +67,5 @@ def setup_youtube_auth():
         logger.error(f"Authentication Failed: {e}")
 
 if __name__ == "__main__":
-    setup_youtube_auth()
+    headless = "--headless" in sys.argv
+    setup_youtube_auth(headless=headless)

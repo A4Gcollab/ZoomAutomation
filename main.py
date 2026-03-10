@@ -102,14 +102,19 @@ def main(run_once=False):
         # --- INITIALIZATION ---
         db = StateManager()
         
-        # 1. Drive & Sheet (Core)
+        # 1. Drive (user OAuth for 2TB personal Drive)
         drive = DriveClient(
             auth_mode=config.DRIVE_AUTH_MODE,
             service_account_file=config.DRIVE_SERVICE_ACCOUNT_FILE,
             client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH,
             token_path=config.DRIVE_TOKEN_PATH
         )
-        sheet_manager = SheetManager(drive.credentials)
+        # Sheets always uses service account (separate from Drive OAuth)
+        sheets_drive = DriveClient(
+            auth_mode='service_account',
+            service_account_file=config.DRIVE_SERVICE_ACCOUNT_FILE
+        )
+        sheet_manager = SheetManager(sheets_drive.credentials)
         sheet_manager.log_system_status("System Booted. Waiting for Command...", "INIT")
         
         # Initialize History Logger
@@ -237,8 +242,14 @@ def main(run_once=False):
                         client = list(zoom_clients_map.values())[0] # Fallback
                         
                         # B. Refresh Metadata & Files
-                        meta = client.get_meeting_recordings(zoom_id)
-                        if not meta: raise Exception("Meeting not found in Zoom (expired?)")
+                        try:
+                            meta = client.get_meeting_recordings(zoom_id)
+                        except Exception as e:
+                            if "404" in str(e) or "Not Found" in str(e):
+                                raise Exception("EXPIRED: Meeting not found in Zoom")
+                            raise e
+                        
+                        if not meta: raise Exception("EXPIRED: Meeting not found in Zoom")
                         
                         # Find Files
                         mp4_url = next((f['download_url'] for f in meta['recording_files'] if f['file_type'] == 'MP4'), None)
@@ -276,12 +287,18 @@ def main(run_once=False):
                         # C. Upload to YouTube
                         logger.info("Uploading to YouTube...")
                         history_logger.log_step(zoom_id, 'youtube_upload_start', f"Uploading to playlist: {pl_name}")
-                        yt_id = youtube.upload_video(
-                            str(vid_path), 
-                            task['topic'], 
-                            f"Approved by {task['approved_by']}", 
-                            privacy_status="unlisted"
-                        )
+                        try:
+                            yt_id = youtube.upload_video(
+                                str(vid_path), 
+                                task['topic'], 
+                                f"Approved by {task['approved_by']}", 
+                                privacy_status="unlisted"
+                            )
+                        except Exception as yt_err:
+                            if 'quotaExceeded' in str(yt_err):
+                                logger.warning("YouTube daily quota exceeded. Stopping cycle until quota resets (1:30 AM IST).")
+                                raise Exception("YOUTUBE_QUOTA_EXCEEDED")
+                            raise yt_err
                         
                         if pl_id: youtube.add_to_playlist(yt_id, pl_id)
                         if os.path.exists(ts_path): youtube.upload_caption(yt_id, str(ts_path))
@@ -297,29 +314,42 @@ def main(run_once=False):
                         video_folder_id = get_drive_folder_id(pl_name, for_transcript=False)
                         transcript_folder_id = get_drive_folder_id(pl_name, for_transcript=True)
                         
-                        if not video_folder_id:
-                            raise Exception(f"No Drive folder found for playlist '{pl_name}'. Please add it to playlist_folders.py")
-                        
-                        logger.info(f"Uploading to Drive Playlist Folder: {pl_name}")
-                        history_logger.log_step(zoom_id, 'drive_upload_start', f"Playlist: {pl_name}")
-                        
-                        # Upload video to playlist video folder
-                        drive.upload_file(str(vid_path), names['video_name_clean'], video_folder_id)
-                        
-                        # Upload transcript to playlist transcript folder (if exists)
-                        if os.path.exists(ts_path) and transcript_folder_id:
-                            drive.upload_file(str(ts_path), names['transcript_filename'], transcript_folder_id)
-                        elif os.path.exists(ts_path):
-                            # Fallback: upload to video folder if no transcript folder
-                            logger.warning(f"No transcript folder for '{pl_name}', uploading to video folder")
-                            drive.upload_file(str(ts_path), names['transcript_filename'], video_folder_id)
+                        drive_link = ""
+                        try:
+                            if not video_folder_id:
+                                raise Exception(f"No Drive folder found for playlist '{pl_name}'. Please add it to playlist_folders.py")
                             
-                        drive_link = f"https://drive.google.com/drive/folders/{video_folder_id}"
-                        history_logger.log_drive_upload(zoom_id, video_folder_id, pl_name)
+                            logger.info(f"Uploading to Drive Playlist Folder: {pl_name}")
+                            history_logger.log_step(zoom_id, 'drive_upload_start', f"Playlist: {pl_name}")
+                            
+                            # Upload video to playlist video folder
+                            drive.upload_file(str(vid_path), names['video_name_clean'], video_folder_id)
+                            
+                            # Upload transcript to playlist transcript folder (if exists)
+                            if os.path.exists(ts_path) and transcript_folder_id:
+                                drive.upload_file(str(ts_path), names['transcript_filename'], transcript_folder_id)
+                            elif os.path.exists(ts_path):
+                                # Fallback: upload to video folder if no transcript folder
+                                logger.warning(f"No transcript folder for '{pl_name}', uploading to video folder")
+                                drive.upload_file(str(ts_path), names['transcript_filename'], video_folder_id)
+                                
+                            drive_link = f"https://drive.google.com/drive/folders/{video_folder_id}"
+                            history_logger.log_drive_upload(zoom_id, video_folder_id, pl_name)
+                        except Exception as drive_err:
+                            logger.error(f"Drive upload failed (skipping): {drive_err}")
+                            history_logger.log_step(zoom_id, 'drive_upload_failed', str(drive_err))
+                            drive_link = "FAILED_QUOTA_ERROR"
                         
-                        # Cleanup
-                        if os.path.exists(vid_path): os.remove(vid_path)
-                        if os.path.exists(ts_path): os.remove(ts_path)
+                        # Cleanup (moved to finally block)
+                        
+                        # E. Delete from Zoom Cloud (after successful YouTube upload)
+                        try:
+                            logger.info(f"Deleting recording from Zoom cloud: {zoom_id}")
+                            client.delete_recording(zoom_id)
+                            logger.info(f"Zoom recording deleted: {zoom_id}")
+                            history_logger.log_step(zoom_id, 'zoom_deleted', 'Deleted from Zoom cloud')
+                        except Exception as del_err:
+                            logger.warning(f"Could not delete Zoom recording (may already be gone): {del_err}")
                         
                         # Mark Complete in TinyDB
                         db.mark_completed(zoom_id)
@@ -348,11 +378,22 @@ def main(run_once=False):
                         notify_success(f"Completed: {task['topic']}")
                         
                     except Exception as e:
+                        error_msg = str(e)
+                        is_expired = "EXPIRED" in error_msg
+                        is_quota = "YOUTUBE_QUOTA_EXCEEDED" in error_msg
+                        status_to_set = "EXPIRED" if is_expired else "ERROR"
+                        
+                        # YouTube quota hit: stop processing for the day, don't mark as ERROR
+                        if is_quota:
+                            logger.warning("YouTube quota exhausted for today. Pipeline will resume after 1:30 AM IST.")
+                            sheet_manager.log_system_status("YouTube quota exhausted. Resuming after reset.", "QUOTA")
+                            break  # Stop processing remaining tasks this cycle
+                        
                         logger.error(f"Failed task {task.get('topic', 'Unknown')}: {e}")
                         
                         # Log error to history
                         zoom_id = task.get('meeting_id', 'unknown')
-                        history_logger.log_error(zoom_id, str(e), 'processing')
+                        history_logger.log_error(zoom_id, error_msg, 'processing')
                         
                         # Try to complete operation with error status
                         try:
@@ -367,14 +408,25 @@ def main(run_once=False):
                         
                         # Update sheet status (only for sheet approvals)
                         if 'row_idx' in task:
-                            sheet_manager.update_row_status(task['row_idx'], "ERROR")
+                            sheet_manager.update_row_status(task['row_idx'], status_to_set)
                         
                         # Update SQL database if this was a frontend approval
                         if task.get('source') == 'frontend':
                             from src.db_sql import db as sql_db
-                            sql_db.update_recording(zoom_id, {'status': 'ERROR'})
+                            sql_db.update_recording(zoom_id, {'status': status_to_set, 'error_message': error_msg})
                         
-                        sheet_manager.log_system_status(f"Error processing {task.get('topic', 'Unknown')}: {e}", "ERROR")
+                        sheet_manager.log_system_status(f"Error processing {task.get('topic', 'Unknown')}: {error_msg}", status_to_set)
+                    
+                    finally:
+                        # Guaranteed Cleanup to prevent disk space exhaustion
+                        try:
+                            if 'vid_path' in locals() and os.path.exists(vid_path):
+                                os.remove(vid_path)
+                                logger.info(f"Cleaned up {vid_path}")
+                            if 'ts_path' in locals() and os.path.exists(ts_path):
+                                os.remove(ts_path)
+                        except Exception as cleanup_err:
+                            logger.error(f"Cleanup failed for {zoom_id}: {cleanup_err}")
 
                 # --- PHASE 3: MONITOR & CLEANUP ---
                 check_disk_space(DOWNLOAD_DIR)

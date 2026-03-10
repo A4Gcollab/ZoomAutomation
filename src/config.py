@@ -41,7 +41,7 @@ while True:
 
 # YouTube Credentials (OAuth Desktop App)
 YOUTUBE_CLIENT_SECRET_PATH = SECRETS_DIR / "client_secret.json"
-YOUTUBE_TOKEN_PATH = SECRETS_DIR / "token.json"
+YOUTUBE_TOKEN_PATH = SECRETS_DIR / "token_youtube.json"
 
 # Web Auth (Google Sign-In)
 GOOGLE_WEB_CLIENT_ID = os.getenv("GOOGLE_WEB_CLIENT_ID", "")

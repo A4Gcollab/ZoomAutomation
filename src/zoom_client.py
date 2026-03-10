@@ -196,17 +196,26 @@ class ZoomClient:
         
         self.logger.info(f"Deleting recording for meeting {meeting_id} (action: {action})")
         
-        resp = requests.delete(url, headers=self.get_headers(), params=params)
-        
-        if resp.status_code == 204:
-            self.logger.info(f"Successfully deleted recording for meeting {meeting_id}")
-            return True
-        elif resp.status_code == 404:
-            self.logger.warning(f"Recording not found for meeting {meeting_id} (may already be deleted)")
-            return True  # Consider this success since it's already gone
-        else:
-            self.logger.error(f"Failed to delete recording: {resp.status_code} - {resp.text}")
-            resp.raise_for_status()
+        try:
+            # Added a strict timeout so it NEVER hangs the background thread
+            resp = requests.delete(url, headers=self.get_headers(), params=params, timeout=15)
+            
+            if resp.status_code == 204:
+                self.logger.info(f"Successfully deleted recording for meeting {meeting_id} (204 No Content)")
+                return True
+            elif resp.status_code == 404:
+                self.logger.warning(f"Recording not found for meeting {meeting_id} (may already be deleted)")
+                return True  # Consider this success since it's already gone
+            else:
+                self.logger.error(f"Failed to delete recording: {resp.status_code} - {resp.text}")
+                resp.raise_for_status()
+                return False
+                
+        except requests.exceptions.Timeout:
+            self.logger.error(f"TIMEOUT: Zoom API took too long to delete recording {meeting_id}")
+            return False
+        except Exception as e:
+            self.logger.error(f"Exception during Zoom deletion: {str(e)}")
             return False
 
     @retry_with_backoff(retries=3)

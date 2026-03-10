@@ -17,7 +17,7 @@ def send_notification(message, level="INFO"):
 
     # Basic payload structure (Discord compatible, adaptable for Slack)
     payload = {
-        "content": f"**[{level}] VONG Automation**\n{message}"
+        "content": f"**[{level}] A4G-Collab Automation**\n{message}"
     }
     
     try:

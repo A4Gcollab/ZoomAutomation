@@ -21,20 +21,6 @@ YTZ Automation is a complete workflow automation system built for Omysha. It man
 - **Complete Audit Trail** - Every success, failure, and retry is logged to Google Sheets.
 - **24/7 Background Daemon** - Runs persistently with Phase 1 (Scanning), Phase 2 (Execution), and Phase 3 (Cleanup) health cycles.
 
-## 🏗️ Architecture & Pipeline
-
-```mermaid
-flowchart TD
-    Z[Zoom Cloud] -->|1. Scan & Download MP4/VTT| B[Python Backend Service]
-    B -->|2. Upload Unlisted| Y[YouTube API]
-    Y -->|3. Download Compressed MP4| B
-    B -->|4. Backup Compressed MP4 + VTT| D[Google Drive]
-    B -->|5. Log Activity| S[Google Sheets]
-    B -.->|6. Delete Original (After 24h)| Z
-    
-    UI[Next.js Dashboard] <-->|Approve Videos| B
-    UI <-->|Secure Admin Login| FA[Firebase Auth]
-```
 
 ### The Compression Workflow
 To bypass Zoom's massive raw file sizes, this system does not copy directly from Zoom to Drive. Once a video is approved:
@@ -107,6 +93,9 @@ For strict manual deployment controls, systemd configurations, and exact firewal
 ## 📖 Deep-Dive Documentation
 
 - **[DOCUMENTATION.md](./DOCUMENTATION.md)** - Master pipeline logic and architecture details.
+- **[USER_GUIDE.md](./USER_GUIDE.md)** - A User Mannual for Zoom Automation.
+- **[DEVELOPER_GUIDE.md](./DEVELOPER_GUIDE.md)** - A Developer's Mannual for Zoom Automation.
+
 
 
 ## 🤝 Contributing

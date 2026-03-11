@@ -107,8 +107,7 @@ For strict manual deployment controls, systemd configurations, and exact firewal
 ## 📖 Deep-Dive Documentation
 
 - **[DOCUMENTATION.md](./DOCUMENTATION.md)** - Master pipeline logic and architecture details.
-- **[HANDOVER.md](./HANDOVER.md)** - Administrative handover, server troubleshooting, and OAuth token renewal guides.
-- **[PRD.md](./PRD.md)** - Original Product Requirements.
+
 
 ## 🤝 Contributing
 
@@ -119,4 +118,4 @@ For strict manual deployment controls, systemd configurations, and exact firewal
 
 ---
 
-**Built with ❤️ for automated Zoom recording management**
+**Built with patience for automated Zoom recording management**

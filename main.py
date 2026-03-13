@@ -172,14 +172,17 @@ def main(run_once=False):
                                     db.mark_detected(r['id'], r)
                                     new_recs.append(r)
                             except: pass
-                    
+
                     # Add to sheets (for logging)
                     added_count = sheet_manager.log_new_recordings(new_recs)
-                    
+
                     # Also add to SQL database (for frontend API)
+                    # Use UUID as primary key (unique per recording instance)
                     from src.db_sql import db as sql_db
                     for rec in new_recs:
-                        sql_db.add_recording(rec['id'], rec)
+                        uuid = rec.get('uuid', str(rec['id']))
+                        meeting_id = str(rec['id'])
+                        sql_db.add_recording(uuid, rec, meeting_id=meeting_id)
                     
                     if added_count > 0:
                         notify_success(f"Found {added_count} new Zoom recordings.")
@@ -205,8 +208,8 @@ def main(run_once=False):
                 for sql_rec in sql_approvals:
                     metadata = json.loads(sql_rec['metadata']) if sql_rec.get('metadata') else {}
                     tasks.append({
-                        'meeting_id': sql_rec['zoom_id'],
-                        'zoom_id': sql_rec['zoom_id'],
+                        'meeting_id': sql_rec.get('meeting_id') or sql_rec['zoom_id'],
+                        'zoom_id': sql_rec['zoom_id'],  # This is the UUID (unique per instance)
                         'topic': sql_rec['topic'],
                         'team': sql_rec['team'],
                         'playlist': sql_rec['playlist'],
@@ -220,9 +223,12 @@ def main(run_once=False):
                 
                 for task in tasks:
                     try:
-                        zoom_id = task['meeting_id']
-                        logger.info(f"Processing: {task['topic']} (approved by {task['approved_by']})")
-                        
+                        # Use UUID (zoom_id) for all Zoom API calls — NOT meeting_id
+                        # meeting_id is the same for ALL recurring instances and fetches wrong recordings
+                        zoom_id = task.get('zoom_id') or task['meeting_id']
+                        meeting_id = task.get('meeting_id', zoom_id)
+                        logger.info(f"Processing: {task['topic']} (approved by {task['approved_by']}, UUID: {zoom_id})")
+
                         # Start history tracking
                         history_logger.start_operation(zoom_id, {
                             'topic': task['topic'],
@@ -231,34 +237,64 @@ def main(run_once=False):
                             'team': task['team'],
                             'playlist': task['playlist']
                         })
-                        
+
                         # Update sheet status (only for sheet approvals)
                         if task.get('row_idx'):
                             sheet_manager.update_row_status(task['row_idx'], "PROCESSING")
-                        
+
                         # A. Get Zoom Client
-                        # For simplicity, try all or map if we stored it? We didn't store account in Sheet V2.
-                        # So we rely on DB or try-all.
-                        client = list(zoom_clients_map.values())[0] # Fallback
-                        
-                        # B. Refresh Metadata & Files
+                        client = list(zoom_clients_map.values())[0]  # Fallback
+
+                        # B. Refresh Metadata & Files using UUID (safe for recurring meetings)
+                        task_start_time = task.get('start_time', '')
+                        expected_date = task_start_time[:10] if task_start_time else None
+
                         try:
-                            meta = client.get_meeting_recordings(zoom_id)
+                            # Always use UUID-based lookup first (returns only this specific instance)
+                            meta = client.get_recording_by_uuid(zoom_id)
                         except Exception as e:
                             if "404" in str(e) or "Not Found" in str(e):
-                                raise Exception("EXPIRED: Meeting not found in Zoom")
-                            raise e
-                        
+                                # UUID lookup failed — only fall back to meeting_id if NOT recurring
+                                if str(zoom_id) == str(meeting_id):
+                                    logger.warning(f"UUID lookup failed, trying meeting_id fallback: {meeting_id}")
+                                    try:
+                                        meta = client.get_meeting_recordings(meeting_id)
+                                    except:
+                                        raise Exception("EXPIRED: Meeting not found in Zoom")
+                                else:
+                                    raise Exception(f"EXPIRED: Recording UUID {zoom_id} not found in Zoom (recurring meeting, no fallback)")
+                            else:
+                                raise e
+
                         if not meta: raise Exception("EXPIRED: Meeting not found in Zoom")
-                        
-                        # Find Files
-                        mp4_url = next((f['download_url'] for f in meta['recording_files'] if f['file_type'] == 'MP4'), None)
-                        vtt_url = next((f['download_url'] for f in meta['recording_files'] if f['file_type'] == 'TRANSCRIPT'), None)
-                        
-                        if not mp4_url: raise Exception("No MP4 file found.")
-                        
-                        # Download
-                        names = generate_names(task['topic'], meta.get('start_time'))
+
+                        # Find Files - match by date for recurring meetings to avoid wrong instance
+                        mp4_url = None
+                        vtt_url = None
+                        for f in meta.get('recording_files', []):
+                            file_start = f.get('recording_start', '')
+                            file_date = file_start[:10] if file_start else None
+
+                            # Skip files that don't match the expected recording date
+                            if expected_date and file_date and file_date != expected_date:
+                                logger.warning(f"Skipping recording file with wrong date: expected {expected_date}, got {file_date}")
+                                continue
+
+                            if f.get('file_type') == 'MP4' and not mp4_url:
+                                mp4_url = f.get('download_url')
+                            elif f.get('file_type') == 'TRANSCRIPT' and not vtt_url:
+                                vtt_url = f.get('download_url')
+
+                        if not mp4_url:
+                            # Log all available files for debugging
+                            logger.error(f"No MP4 found matching date {expected_date}. Available files:")
+                            for f in meta.get('recording_files', []):
+                                logger.error(f"  - {f.get('file_type')} | start: {f.get('recording_start', 'unknown')}")
+                            raise Exception(f"No MP4 file found matching expected date {expected_date}")
+
+                        # Download - use meta's start_time for naming (from actual Zoom data)
+                        recording_start = meta.get('start_time', task_start_time)
+                        names = generate_names(task['topic'], recording_start)
                         vid_path = DOWNLOAD_DIR / names['video_filename']
                         ts_path = DOWNLOAD_DIR / names['transcript_filename']
                         
@@ -284,14 +320,15 @@ def main(run_once=False):
                             logger.info(f"Playlist '{pl_name}' not found. Creating new...")
                             pl_id = youtube.create_playlist(pl_name, "Auto-created by VONG", "unlisted")
                         
-                        # C. Upload to YouTube
-                        logger.info("Uploading to YouTube...")
+                        # C. Upload to YouTube (use date-prefixed title e.g. "20260312 Daily meeting")
+                        youtube_title = names.get('youtube_title', task['topic'])
+                        logger.info(f"Uploading to YouTube as: {youtube_title}")
                         history_logger.log_step(zoom_id, 'youtube_upload_start', f"Uploading to playlist: {pl_name}")
                         try:
                             yt_id = youtube.upload_video(
-                                str(vid_path), 
-                                task['topic'], 
-                                f"Approved by {task['approved_by']}", 
+                                str(vid_path),
+                                youtube_title,
+                                f"Approved by {task['approved_by']}",
                                 privacy_status="unlisted"
                             )
                         except Exception as yt_err:
@@ -341,15 +378,26 @@ def main(run_once=False):
                             drive_link = "FAILED_QUOTA_ERROR"
                         
                         # Cleanup (moved to finally block)
-                        
-                        # E. Delete from Zoom Cloud (after successful YouTube upload)
-                        try:
-                            logger.info(f"Deleting recording from Zoom cloud: {zoom_id}")
-                            client.delete_recording(zoom_id)
-                            logger.info(f"Zoom recording deleted: {zoom_id}")
-                            history_logger.log_step(zoom_id, 'zoom_deleted', 'Deleted from Zoom cloud')
-                        except Exception as del_err:
-                            logger.warning(f"Could not delete Zoom recording (may already be gone): {del_err}")
+
+                        # E. Delete from Zoom Cloud — ONLY if BOTH YouTube AND Drive succeeded
+                        if yt_link and drive_link and drive_link != "FAILED_QUOTA_ERROR":
+                            try:
+                                # Use UUID-based deletion (safe for recurring meetings)
+                                logger.info(f"Deleting recording from Zoom cloud (UUID: {zoom_id})")
+                                client.get_recording_by_uuid(zoom_id)  # Verify it exists first
+                                import urllib.parse
+                                if zoom_id.startswith('/') or '//' in zoom_id:
+                                    encoded_id = urllib.parse.quote(urllib.parse.quote(zoom_id, safe=''), safe='')
+                                else:
+                                    encoded_id = urllib.parse.quote(zoom_id, safe='')
+                                client.delete_recording(encoded_id)
+                                logger.info(f"Zoom recording deleted: {zoom_id}")
+                                history_logger.log_step(zoom_id, 'zoom_deleted', 'Deleted from Zoom cloud')
+                            except Exception as del_err:
+                                logger.warning(f"Could not delete Zoom recording (may already be gone): {del_err}")
+                        else:
+                            logger.warning(f"NOT deleting from Zoom - safety check: YT={bool(yt_link)}, Drive={drive_link}")
+                            history_logger.log_step(zoom_id, 'zoom_delete_skipped', f'Safety: YT={bool(yt_link)}, Drive={drive_link}')
                         
                         # Mark Complete in TinyDB
                         db.mark_completed(zoom_id)
@@ -431,6 +479,12 @@ def main(run_once=False):
                 # --- PHASE 3: MONITOR & CLEANUP ---
                 check_disk_space(DOWNLOAD_DIR)
                 cleanup_old_files(DOWNLOAD_DIR)
+                
+                # Zoom Cloud Cleanup: Delete recordings that are COMPLETED and older than 1 day
+                try:
+                    cleanup_zoom_recordings(sheet_manager, zoom_clients_map, retention_days=1)
+                except Exception as cleanup_err:
+                    logger.warning(f"Zoom cloud cleanup failed (non-fatal): {cleanup_err}")
                 
                 # Update dashboard with stats
                 sheet_manager.update_dashboard("Idle", "Waiting for next cycle...")

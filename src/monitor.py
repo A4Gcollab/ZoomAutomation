@@ -50,7 +50,7 @@ def cleanup_old_files(folder, max_age_hours=24):
 def cleanup_zoom_recordings(sheet_manager, zoom_clients_map, retention_days=7):
     """
     Scans the V2 sheet for COMPLETED items older than retention_days
-    and deletes them from Zoom.
+    and deletes them from Zoom ONLY if both YouTube and Drive links exist.
     """
     logger.info(f"Running Safety Deletion Check (Retention: {retention_days} days)...")
     
@@ -62,8 +62,9 @@ def cleanup_zoom_recordings(sheet_manager, zoom_clients_map, retention_days=7):
         headers = rows[0]
         data = rows[1:]
         
-        # Column Indexes (0-based) based on V2 Schema
-        # 0: Date, 1: ID, 5: Status
+        # Column Indexes (0-based) based on V2 Schema:
+        # 0: Date, 1: ID, 2: Title, 3: Team, 4: Playlist,
+        # 5: Status, 6: Approved By, 7: YouTube URL, 8: Drive Folder
         
         now = datetime.now()
         
@@ -73,22 +74,35 @@ def cleanup_zoom_recordings(sheet_manager, zoom_clients_map, retention_days=7):
             status = row[5].strip().upper()
             zoom_id = row[1].strip()
             date_str = row[0].strip()
+            youtube_url = row[7].strip() if len(row) > 7 else ""
+            drive_url = row[8].strip() if len(row) > 8 else ""
             
-            # Logic: If Status is COMPLETED (and not already marked deleted)
+            # SAFETY: Only delete if COMPLETED AND both YouTube AND Drive links exist and are valid
             if "COMPLETED" in status and "ZOOM_DELETED" not in status:
+                # Check both links are present and valid (not error placeholders)
+                if not youtube_url or not drive_url or "FAILED" in drive_url.upper():
+                    logger.info(f"Skipping {zoom_id}: missing or invalid links (YT: {'✓' if youtube_url else '✗'}, Drive: {'✓' if (drive_url and 'FAILED' not in drive_url.upper()) else '✗'})")
+                    continue
+                
                 try:
                     # Use Meeting Date as proxy for age
                     meeting_date = datetime.strptime(date_str, "%Y-%m-%d")
                     age_days = (now - meeting_date).days
                     
                     if age_days >= retention_days:
-                        logger.info(f"Found expired recording: {zoom_id} (Age: {age_days} days). Deleting...")
+                        logger.info(f"Found expired recording: {zoom_id} (Age: {age_days} days, YT: ✓, Drive: ✓). Deleting...")
                         
                         deleted = False
-                        # Try all clients (since we don't know exact ownership from sheet)
+                        # Try all clients using UUID-safe deletion
+                        import urllib.parse
                         for acc_name, client in zoom_clients_map.items():
                             try:
-                                if client.delete_recording(zoom_id):
+                                # URL-encode UUID for Zoom API (double-encode if starts with / or has //)
+                                if zoom_id.startswith('/') or '//' in zoom_id:
+                                    encoded_id = urllib.parse.quote(urllib.parse.quote(zoom_id, safe=''), safe='')
+                                else:
+                                    encoded_id = urllib.parse.quote(zoom_id, safe='')
+                                if client.delete_recording(encoded_id):
                                     deleted = True
                                     break
                             except:
@@ -108,3 +122,4 @@ def cleanup_zoom_recordings(sheet_manager, zoom_clients_map, retention_days=7):
                     
     except Exception as e:
         logger.error(f"Error during Zoom Cleanup: {e}")
+

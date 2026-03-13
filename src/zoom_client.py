@@ -180,7 +180,7 @@ class ZoomClient:
         return True
     
     @retry_with_backoff(retries=2)
-    def delete_recording(self, meeting_id, action="delete"):
+    def delete_recording(self, meeting_id, action="trash"):
         """
         Delete a recording from Zoom cloud.
         

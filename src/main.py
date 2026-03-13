@@ -799,7 +799,7 @@ class BackgroundService(threading.Thread):
                     try:
                         logger.info(f"      Deleting from Zoom...")
                         encoded_id = self._encode_uuid_for_zoom(zoom_id)
-                        if zoom_client.delete_recording(encoded_id, action="delete"):
+                        if zoom_client.delete_recording(encoded_id, action="trash"):
                             logger.info(f"      Zoom recording deleted successfully")
                             db.update_recording(zoom_id, {
                                 "zoom_deletion_status": "DELETED",

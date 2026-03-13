@@ -180,7 +180,7 @@ class ZoomClient:
         return True
     
     @retry_with_backoff(retries=2)
-    def delete_recording(self, meeting_id, action="delete"):
+    def delete_recording(self, meeting_id, action="trash"):
         """
         Delete a recording from Zoom cloud.
         
@@ -221,8 +221,13 @@ class ZoomClient:
     @retry_with_backoff(retries=3)
     def get_meeting_recordings(self, meeting_id):
         """
-        Fetch all recordings for a specific meeting ID.
-        Useful for refreshing metadata before download.
+        Fetch all recordings for a specific meeting ID or UUID.
+
+        IMPORTANT: For recurring meetings, always pass the UUID (not meeting_id)
+        to get the specific instance. Passing meeting_id returns ALL instances
+        which can cause the wrong recording to be downloaded.
+
+        UUIDs containing '/' or '//' must be double-URL-encoded.
         """
         url = f"{self.base_url}/meetings/{meeting_id}/recordings"
 
@@ -240,3 +245,23 @@ class ZoomClient:
     def get_recording_details(self, meeting_id):
         """Alias for get_meeting_recordings."""
         return self.get_meeting_recordings(meeting_id)
+
+    def get_recording_by_uuid(self, uuid_str):
+        """
+        Fetch recordings for a specific meeting instance by UUID.
+
+        This is the SAFE method for recurring meetings - it returns only
+        the files for that specific instance, not all instances.
+
+        Args:
+            uuid_str: The meeting UUID (unique per instance)
+        """
+        import urllib.parse
+
+        # Zoom requires double URL-encoding if UUID starts with '/' or contains '//'
+        if uuid_str.startswith('/') or '//' in uuid_str:
+            encoded_id = urllib.parse.quote(urllib.parse.quote(uuid_str, safe=''), safe='')
+        else:
+            encoded_id = urllib.parse.quote(uuid_str, safe='')
+
+        return self.get_meeting_recordings(encoded_id)

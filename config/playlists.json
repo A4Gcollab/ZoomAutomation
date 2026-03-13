@@ -2,9 +2,9 @@
   "playlists": [
     {
       "playlist_id": "PL8yNrvcL-DjwrYWKnTtOSnJ5LJPZwscme",
-      "playlist_name": "2.2.5 Enablers - HR",
+      "playlist_name": "2.2.5 Enablers - HR/OPM",
       "category": "HR",
-      "drive_folder_id": "1m9YBC8GQ7yeB0cwAkgtyopAMzwYRb4Tp",
+      "drive_folder_id": "1LRE1-1zW_1sKtPjX_7xrlb5OmPE3jBhP",
       "transcript_folder_id": "1ekdVgcqqrGCnZLCUegw4Y79dkc_-wGkB",
       "meeting_ids": [
         "81198809795"
@@ -13,18 +13,21 @@
         "hr",
         "recruitment",
         "onboarding",
-        "human resource"
+        "human resource",
+        "hr and opm"
+        
       ]
     },
     {
       "playlist_id": "PL8yNrvcL-DjwbjZIPWHGwgWQ3e5sKYwwd",
       "playlist_name": "2.2.4 Tech Systems and Products",
       "category": "Tech",
-      "drive_folder_id": "1-ZdSCOUKHozKaMjCz5RqJkjr0tSKCwaR",
-      "transcript_folder_id": "1x1ds_HHcLlMM3peBg7UqNWltYjusOfKd",
+      "drive_folder_id": "1eWxD6uZdvF1Gk9byHl4aB71DyH7mWSWs",
+      "transcript_folder_id": "1gPWSqLGRV7pZ8cqGOyMwMFb94eNjANZy",
       "meeting_ids": [
         "82486284329",
-        "81992981065"
+        "81992981065",
+        "84456572529"
       ],
       "keywords": [
         "tech",
@@ -36,10 +39,10 @@
     },
     {
       "playlist_id": "PL8yNrvcL-DjwPNaFACH_V9mxKlKvkFEhS",
-      "playlist_name": "2.2.1 Marketing",
+      "playlist_name": "2.2.1 Marketing and PR",
       "category": "Marketing",
-      "drive_folder_id": "1KuMKFhbPzMoPdfAIlJitrI5BZEsd9-3Q",
-      "transcript_folder_id": "1gPWSqLGRV7pZ8cqGOyMwMFb94eNjANZy",
+      "drive_folder_id": "13pSMIo4Qso1BToFSP8lRmRukLQiPnETN",
+      "transcript_folder_id": "1Z-u6SpvGuHRp-sSesmGcHfO4SWXZcsX_",
       "meeting_ids": [
         "88986938073"
       ],
@@ -53,56 +56,53 @@
       "playlist_id": "PL8yNrvcL-DjyA7HYNGB5XGihg7QwdaKRf",
       "playlist_name": "2.2.2 Growth",
       "category": "Growth",
-      "drive_folder_id": "1eWxD6uZdvF1Gk9byHl4aB71DyH7mWSWs",
-      "transcript_folder_id": "13SUptwBQ1iL8lqEMWbVDnpemVugXQ5MA",
+      "drive_folder_id": "1B7aQNscLGkz7jDPiRPt5FF8CGUifHFvm",
+      "transcript_folder_id": "1nW-5ZdbgBjaNMYbdNuV1QziwGAAso-Wr",
       "meeting_ids": [
-        "88355536074",
-        "86115620154",
-        "81854001799"
+        "82525378452",
+        "88355536074"
       ],
       "keywords": [
+        "growth Team meet with OL",
         "growth",
-        "sales",
-        "revenue"
+        "A4G Horizons sponsership and fundraising"
       ]
     },
     {
       "playlist_id": "PL8yNrvcL-DjxMxtZkxt_sdJOuPUnCxgtu",
       "playlist_name": "2.2.5 Enablers - PM",
       "category": "Project Management",
-      "drive_folder_id": "13FZuXmvh3I_WPn8dKGhCIHQDIAgRfjz5",
-      "transcript_folder_id": "1nW-5ZdbgBjaNMYbdNuV1QziwGAAso-Wr",
+      "drive_folder_id": "1-ZdSCOUKHozKaMjCz5RqJkjr0tSKCwaR",
+      "transcript_folder_id": "1lz4L0josi7NXnwZSdxApGF1gJPW1KZFH",
       "meeting_ids": [
-        "85224726018",
-        "82962537185",
-        "85788605730",
-        "84197418688"
+        "85224726018"
       ],
       "keywords": [
         "project management",
         "pm meeting",
-        "intern"
+        "PM Daily Meet with Nitin sir"
       ]
     },
     {
       "playlist_id": "PL8yNrvcL-Djzh6H5tNeTARMk1sZ7eBUtE",
       "playlist_name": "2.2.3 Research Analysis Bureau RAB",
       "category": "Research",
-      "drive_folder_id": "1B7aQNscLGkz7jDPiRPt5FF8CGUifHFvm",
-      "transcript_folder_id": "1Z-u6SpvGuHRp-sSesmGcHfO4SWXZcsX_",
-      "meeting_ids": [],
+      "drive_folder_id": "13FZuXmvh3I_WPn8dKGhCIHQDIAgRfjz5",
+      "transcript_folder_id": "13SUptwBQ1iL8lqEMWbVDnpemVugXQ5MA",
+      "meeting_ids": ["84826440364"],
       "keywords": [
+        "A4G Horizons pannel and content Execution Team meetings",
         "research",
         "rab",
-        "analysis"
+        "analysis"   
       ]
     },
     {
       "playlist_id": "PL8yNrvcL-DjzTc_gdhyDv0ll4x1HRmNPw",
-      "playlist_name": "2.2.6 Community Building",
+      "playlist_name": "2.2.6 community building CB",
       "category": "Community",
-      "drive_folder_id": "13pSMIo4Qso1BToFSP8lRmRukLQiPnETN",
-      "transcript_folder_id": "1lz4L0josi7NXnwZSdxApGF1gJPW1KZFH",
+      "drive_folder_id": "16KiC87V_40yFGe2zp4170HaH-tx2pp4K",
+      "transcript_folder_id": "1slLMUwbjqGMwRGeX_Gc1XRP5jVYoPTze",
       "meeting_ids": [
         "85189689047"
       ],
@@ -112,24 +112,22 @@
       ]
     },
     {
-      "playlist_id": "PL8yNrvcL-DjwrYWKnTtOSnJ5LJPZwscme",
-      "playlist_name": "2.2.5 Enablers - OPM & HR",
-      "category": "OPM",
-      "drive_folder_id": "1Tn5ZlkTimYJYyjxH3B_eeJLbnF4T0B6N",
+      "playlist_id": "PL8yNrvcL-DjwBKN0RifmwWWAA8xa_-pky",
+      "playlist_name": "General Meetings",
+      "category": "General Meetings",
+      "drive_folder_id": "17vqCD1aXLdWh7PBhUKRaBNcB0C7wihpv",
       "transcript_folder_id": "1vIMx-FiqoxmN5scG9a4jJbKDN02piJ-7",
-      "meeting_ids": [
-        "81059261130"
-      ],
+      "meeting_ids": ["84197418688"],
       "keywords": [
-        "opm",
-        "operations"
+        "daily meeting",
+        "general"
       ]
     },
     {
       "playlist_id": "PL8yNrvcL-DjysA8ZgYj2OjxNWyhunGPPE",
       "playlist_name": "Essay Contest",
       "category": "Events",
-      "drive_folder_id": "13otF9gCQahMvGaEF18mXYeKOd5Zp3EXJ",
+      "drive_folder_id": "1_qj6pUo93aHp0ffBhjDkZMBLuP_Gpo30",
       "transcript_folder_id": "1PGococ2OOJn3KCEekIa-Y2_oF8HKdV81",
       "meeting_ids": [],
       "keywords": [
@@ -141,8 +139,8 @@
       "playlist_id": "PL8yNrvcL-DjxNkZzqIMpRO6j3vEsfnewS",
       "playlist_name": "2.2.5 Enablers",
       "category": "Enablers",
-      "drive_folder_id": "1LRE1-1zW_1sKtPjX_7xrlb5OmPE3jBhP",
-      "transcript_folder_id": "1PGococ2OOJn3KCEekIa-Y2_oF8HKdV81",
+      "drive_folder_id": "1KuMKFhbPzMoPdfAIlJitrI5BZEsd9-3Q",
+      "transcript_folder_id": "132wTjgl9UuN6-qedka_LcbcQBkb5NSm7",
       "meeting_ids": [
         "9824392507",
         "7020693264"
@@ -156,8 +154,8 @@
       "playlist_id": "PL8yNrvcL-Djxwt1gQZscBUA1qWYG3u28u",
       "playlist_name": "Townhall",
       "category": "Townhall",
-      "drive_folder_id": "",
-      "transcript_folder_id": "",
+      "drive_folder_id": "1cRC-sMGdU4oYh8g5cenHI-YzYw9Zy5A5",
+      "transcript_folder_id": "1Rwn_IB8yPhkPT4oFin28KIhcgjLAcTKT",
       "meeting_ids": [],
       "keywords": [
         "townhall",
@@ -169,8 +167,8 @@
       "playlist_id": "PL8yNrvcL-DjwX0cc2jvtlUdtBXnFT2MSj",
       "playlist_name": "omysha alignment meeting",
       "category": "Omysha",
-      "drive_folder_id": "",
-      "transcript_folder_id": "",
+      "drive_folder_id": "1Uyj8PsEbCA-8obySdnE5VFNnrTCJSDBC",
+      "transcript_folder_id": "1ViCmRYXbbE2gGCKYkhr3iHaNURcYfQuD",
       "meeting_ids": [],
       "keywords": [
         "omysha",
@@ -182,8 +180,8 @@
       "playlist_id": "PL8yNrvcL-DjxEzsS3QI5r3LUrXayIgMoJ",
       "playlist_name": "sponsorship and fundraising",
       "category": "Sponsorship",
-      "drive_folder_id": "",
-      "transcript_folder_id": "",
+      "drive_folder_id": "16KiC87V_40yFGe2zp4170HaH-tx2pp4K",
+      "transcript_folder_id": "1slLMUwbjqGMwRGeX_Gc1XRP5jVYoPTze",
       "meeting_ids": [],
       "keywords": [
         "sponsorship",
@@ -197,6 +195,8 @@
   "default_playlist_id": "PL8yNrvcL-DjxNkZzqIMpRO6j3vEsfnewS",
   "default_playlist_name": "Miscellaneous",
   "default_category": "Miscellaneous",
+  "drive_folder_id": "1hSsWll8tSZ1MvOpObt4IeQnpBy_JQLtW",
+  "transcript_folder_id": "1qYyOYdYJ2EsewD-o7x6whRsRrlmb-6zp",
   "auto_create_new_playlists": false,
   "notify_on_auto_create": true
 }

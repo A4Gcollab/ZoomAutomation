@@ -317,14 +317,18 @@ class BackgroundService(threading.Thread):
             logger.info(f"Added {count} new recording(s) to database")
 
     def _encode_uuid_for_zoom(self, uuid_str):
-        """Double URL-encode a UUID for use with the Zoom API.
+        """URL-encode a UUID for use with the Zoom API.
 
-        Zoom UUIDs that start with '/' or contain '//' must be double-encoded.
-        Safe to call on any UUID - it won't break non-special ones.
+        Zoom requires double encoding ONLY if the UUID starts with '/' or contains '//'.
+        For all other UUIDs, SINGLE URL encoding is strictly required.
         """
-        if uuid_str and ('/' in uuid_str or uuid_str.startswith('/')):
+        if not uuid_str:
+            return uuid_str
+            
+        if uuid_str.startswith('/') or '//' in uuid_str:
             return urllib.parse.quote(urllib.parse.quote(uuid_str, safe=''), safe='')
-        return uuid_str
+            
+        return urllib.parse.quote(uuid_str, safe='')
 
     def _process_queue(self):
         tasks = db.get_approved()
@@ -387,25 +391,42 @@ class BackgroundService(threading.Thread):
                 encoded_id = self._encode_uuid_for_zoom(zoom_id)
                 recording_data = zoom_client.get_recording_details(encoded_id)
 
-                # If UUID lookup fails, fall back to meeting ID
-                if not recording_data:
-                    logger.warning(f"   UUID lookup failed, trying meeting ID: {meeting_id}")
+                # If UUID lookup fails, try meeting_id fallback ONLY for non-recurring meetings
+                if not recording_data and str(zoom_id) == str(meeting_id):
+                    logger.warning(f"   UUID lookup failed, trying meeting ID fallback: {meeting_id}")
                     recording_data = zoom_client.get_recording_details(meeting_id)
 
                 if not recording_data:
                     raise Exception(f"Recording not found on Zoom (UUID: {zoom_id}, Meeting ID: {meeting_id})")
 
+                # Extract the expected date from start_time for verification
+                expected_date = start_time[:10] if start_time else None
+
                 video_url = None
                 transcript_url = None
 
+                # When multiple recording_files exist (recurring meetings fetched by meeting_id),
+                # match by recording_start date to avoid downloading the wrong instance
                 for file in recording_data.get('recording_files', []):
-                    if file.get('file_type') == 'MP4':
+                    file_start = file.get('recording_start', '')
+                    file_date = file_start[:10] if file_start else None
+
+                    # If we have date info, only accept files matching our expected date
+                    if expected_date and file_date and file_date != expected_date:
+                        logger.warning(f"   Skipping file with mismatched date: expected {expected_date}, got {file_date}")
+                        continue
+
+                    if file.get('file_type') == 'MP4' and not video_url:
                         video_url = file.get('download_url')
-                    elif file.get('file_type') == 'TRANSCRIPT':
+                    elif file.get('file_type') == 'TRANSCRIPT' and not transcript_url:
                         transcript_url = file.get('download_url')
 
                 if not video_url:
-                    raise Exception("No video file found in recording")
+                    # Fallback: if strict date matching found nothing, log clearly and try without date filter
+                    logger.warning(f"   No MP4 found matching date {expected_date}. Available files:")
+                    for file in recording_data.get('recording_files', []):
+                        logger.warning(f"     - {file.get('file_type')} | start: {file.get('recording_start', 'unknown')} | status: {file.get('status', 'unknown')}")
+                    raise Exception(f"No video file found matching expected date {expected_date} (UUID: {zoom_id})")
 
                 zoom_client.download_file(video_url, video_path)
                 logger.info(f"   Video downloaded: {video_filename}")
@@ -609,8 +630,8 @@ class BackgroundService(threading.Thread):
                 # Re-fetch Zoom recording details for download URLs
                 encoded_id = self._encode_uuid_for_zoom(zoom_id)
                 recording_data = zoom_client.get_recording_details(encoded_id)
-                if not recording_data:
-                    logger.warning(f"   UUID lookup failed, trying meeting ID: {meeting_id}")
+                if not recording_data and str(zoom_id) == str(meeting_id):
+                    logger.warning(f"   UUID lookup failed, trying meeting ID fallback: {meeting_id}")
                     recording_data = zoom_client.get_recording_details(meeting_id)
 
                 if not recording_data:
@@ -624,9 +645,19 @@ class BackgroundService(threading.Thread):
                     })
                     continue
 
+                # Extract expected date for verification
+                expected_date = start_time[:10] if start_time else None
+
                 video_url = None
                 transcript_url = None
                 for file in recording_data.get('recording_files', []):
+                    file_start = file.get('recording_start', '')
+                    file_date = file_start[:10] if file_start else None
+
+                    if expected_date and file_date and file_date != expected_date:
+                        logger.warning(f"   Skipping file with mismatched date: expected {expected_date}, got {file_date}")
+                        continue
+
                     if file.get('file_type') == 'MP4' and not video_url:
                         video_url = file.get('download_url')
                     elif file.get('file_type') == 'TRANSCRIPT':

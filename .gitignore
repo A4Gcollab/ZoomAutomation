@@ -3,6 +3,10 @@ __pycache__/
 *$py.class
 venv/
 .env
+.env.*
+.env.local
+.env.production
+.env.save
 secrets/
 *.log
 .DS_Store

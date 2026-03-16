@@ -345,13 +345,16 @@ class Database:
                 return 0
 
     def recover_error_records(self, max_retries=3):
-        """Reset ERROR records back to PENDING for retry (up to max_retries)."""
+        """Reset ERROR records back to APPROVED (if matched) or PENDING for retry."""
         with self._lock:
             try:
                 cur = self._get_cursor()
                 cur.execute("""
                     UPDATE recordings
-                    SET status = 'PENDING',
+                    SET status = CASE
+                            WHEN team IS NOT NULL AND playlist IS NOT NULL THEN 'APPROVED'
+                            ELSE 'PENDING_PLAYLIST'
+                        END,
                         retry_count = COALESCE(retry_count, 0) + 1,
                         error_message = NULL
                     WHERE status = 'ERROR'

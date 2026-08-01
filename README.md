@@ -107,4 +107,4 @@ For strict manual deployment controls, systemd configurations, and exact firewal
 
 ---
 
-**Built with patience for automated Zoom recording management**
+**Built with patience for automated Zoom recording management by Tech lead Sneha Chouksey at A4GCollab **

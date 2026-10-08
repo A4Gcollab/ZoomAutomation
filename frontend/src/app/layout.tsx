@@ -3,10 +3,9 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 import { cn } from "@/lib/utils";
 import { FirebaseClientProvider } from "@/firebase/client-provider";
-import { ErrorBoundary } from "@/components/error-boundary";
 
 export const metadata: Metadata = {
-  title: "YTZ Automation Dashboard",
+  title: "Zoom Automation Dashboard",
   description: "Manage your Zoom recordings with ease.",
 };
 
@@ -26,11 +25,9 @@ export default function RootLayout({
         />
       </head>
       <body className={cn("font-body antialiased", "min-h-screen bg-background font-sans")}>
-        <ErrorBoundary>
-          <FirebaseClientProvider>
+        <FirebaseClientProvider>
             {children}
-          </FirebaseClientProvider>
-        </ErrorBoundary>
+        </FirebaseClientProvider>
         <Toaster />
       </body>
     </html>

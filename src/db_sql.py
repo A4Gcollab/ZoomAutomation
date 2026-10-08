@@ -195,17 +195,17 @@ class Database:
             return [dict(row) for row in cur.fetchall()]
 
     def get_ready_for_zoom_deletion(self, delay_hours=6):
-        """Get COMPLETED recordings where Drive upload happened >delay_hours ago."""
+        """Get COMPLETED recordings whose deletion_ready_at has passed."""
         with self._lock:
             cur = self._get_cursor()
             cur.execute("""
-                SELECT * FROM recordings 
-                WHERE status = 'COMPLETED' 
-                AND drive_uploaded_at IS NOT NULL
+                SELECT * FROM recordings
+                WHERE status = 'COMPLETED'
+                AND deletion_ready_at IS NOT NULL
                 AND (zoom_deletion_status IS NULL OR zoom_deletion_status = 'PENDING' OR zoom_deletion_status = '')
-                AND datetime(drive_uploaded_at) <= datetime('now', ? || ' hours')
-                ORDER BY drive_uploaded_at ASC
-            """, (str(-delay_hours),))
+                AND datetime(deletion_ready_at) <= datetime('now')
+                ORDER BY deletion_ready_at ASC
+            """)
             return [dict(row) for row in cur.fetchall()]
 
     def get_options(self):
@@ -345,13 +345,16 @@ class Database:
                 return 0
 
     def recover_error_records(self, max_retries=3):
-        """Reset ERROR records back to PENDING for retry (up to max_retries)."""
+        """Reset ERROR records back to APPROVED (if matched) or PENDING for retry."""
         with self._lock:
             try:
                 cur = self._get_cursor()
                 cur.execute("""
                     UPDATE recordings
-                    SET status = 'PENDING',
+                    SET status = CASE
+                            WHEN team IS NOT NULL AND playlist IS NOT NULL THEN 'APPROVED'
+                            ELSE 'PENDING_PLAYLIST'
+                        END,
                         retry_count = COALESCE(retry_count, 0) + 1,
                         error_message = NULL
                     WHERE status = 'ERROR'

@@ -1,0 +1,4 @@
+Traceback (most recent call last):
+  File "/opt/ZoomAutomation/src/main.py", line 410, in _process_queue
+    raise Exception(f"Recording not found on Zoom (UUID: {zoom_id}, Meeting ID: {meeting_id})")
+Exception: Recording not found on Zoom (UUID: 7MqyKI7eR0C/O3gD8qpv6A==, Meeting ID: 87859725835)

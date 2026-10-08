@@ -15,7 +15,6 @@
         "onboarding",
         "human resource",
         "hr and opm"
-        
       ]
     },
     {
@@ -89,12 +88,14 @@
       "category": "Research",
       "drive_folder_id": "13FZuXmvh3I_WPn8dKGhCIHQDIAgRfjz5",
       "transcript_folder_id": "13SUptwBQ1iL8lqEMWbVDnpemVugXQ5MA",
-      "meeting_ids": ["84826440364"],
+      "meeting_ids": [
+        "84826440364"
+      ],
       "keywords": [
         "A4G Horizons pannel and content Execution Team meetings",
         "research",
         "rab",
-        "analysis"   
+        "analysis"
       ]
     },
     {
@@ -117,7 +118,9 @@
       "category": "General Meetings",
       "drive_folder_id": "17vqCD1aXLdWh7PBhUKRaBNcB0C7wihpv",
       "transcript_folder_id": "1vIMx-FiqoxmN5scG9a4jJbKDN02piJ-7",
-      "meeting_ids": ["84197418688"],
+      "meeting_ids": [
+        "84197418688"
+      ],
       "keywords": [
         "daily meeting",
         "general"
@@ -189,6 +192,36 @@
         "sponsor",
         "collab meetup",
         "horizons"
+      ]
+    },
+    {
+      "playlist_id": "PL8yNrvcL-DjyLr2S5VuT5gJw6jYUCeR_7",
+      "playlist_name": "WORK HUB MEET",
+      "category": "Work Hub",
+      "drive_folder_id": "1plUlqwtnRLKZvgZusoGjCu8IpJ7qBYwZ",
+      "transcript_folder_id": "1DGuy7p-kC-LEvJApJaK7DE4EgohPy15C",
+      "meeting_ids": [
+        "85175455734"
+      ],
+      "keywords": [
+        "the work hub",
+        "work hub",
+        "work hub meet",
+        "workhub"
+      ]
+    },
+    {
+      "playlist_id": "PLaIAczDhfdAI",
+      "playlist_name": "AI Training session for Sankles",
+      "category": "Sankle Training",
+      "drive_folder_id": "1lX2dwZT3OX-2p35hdH5OfJVTaEoexM9e",
+      "transcript_folder_id": "1IHNq_SHaLXN6IwGcTV-AIVW61LWfZRdT",
+      "meeting_ids": [],
+      "keywords": [
+        "ai training",
+        "sankle",
+        "sankles",
+        "training session"
       ]
     }
   ],

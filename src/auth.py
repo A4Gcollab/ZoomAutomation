@@ -35,7 +35,7 @@ def verify_google_token(token):
         logger.info(f"Verifying token with Client ID: {GOOGLE_CLIENT_ID}")
         
         # verify_oauth2_token verifies the signature and expiration
-        id_info = id_token.verify_oauth2_token(token, requests.Request(), GOOGLE_CLIENT_ID)
+        id_info = id_token.verify_firebase_token(token, requests.Request(), GOOGLE_CLIENT_ID)
 
         email = id_info.get('email')
         

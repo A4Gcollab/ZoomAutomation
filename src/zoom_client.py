@@ -31,16 +31,15 @@ class ZoomClient:
         url = "https://zoom.us/oauth/token"
         auth_str = f"{self.client_id}:{self.client_secret}"
         b64_auth = base64.b64encode(auth_str.encode()).decode()
-        
+
         headers = {
             "Authorization": f"Basic {b64_auth}"
-            # Content-Type is not strictly needed if body is empty, but can stay
         }
         query_params = {
             "grant_type": "account_credentials",
             "account_id": self.account_id
         }
-        
+
         resp = requests.post(url, headers=headers, params=query_params)
         if resp.status_code != 200:
             try:
@@ -73,18 +72,17 @@ class ZoomClient:
             "page_size": 30,
             "status": "active"
         }
-        
+
         while True:
             resp = requests.get(url, headers=self.get_headers(), params=params)
             if resp.status_code != 200:
                 self.logger.error(f"Zoom API Error (get_all_users): {resp.status_code} - {resp.text}")
             resp.raise_for_status()
             data = resp.json()
-            
+
             for user in data.get('users', []):
                 yield user
-            
-            # Check for next page
+
             if data.get('next_page_token'):
                 params['next_page_token'] = data['next_page_token']
             else:
@@ -102,7 +100,7 @@ class ZoomClient:
             "to": to_date,
             "page_size": 30
         }
-        
+
         recordings = []
         while True:
             resp = requests.get(url, headers=self.get_headers(), params=params)
@@ -113,14 +111,14 @@ class ZoomClient:
                 self.logger.error(f"Zoom API Error (get_user_recordings): {resp.status_code} - {resp.text}")
             resp.raise_for_status()
             data = resp.json()
-            
+
             recordings.extend(data.get('meetings', []))
-            
+
             if data.get('next_page_token'):
                 params['next_page_token'] = data['next_page_token']
             else:
                 break
-        
+
         return recordings
 
     @retry_with_backoff(retries=3)
@@ -133,7 +131,7 @@ class ZoomClient:
             "page_size": 100,
             "type": "scheduled"
         }
-        
+
         meetings = []
         while True:
             resp = requests.get(url, headers=self.get_headers(), params=params)
@@ -143,31 +141,21 @@ class ZoomClient:
                 self.logger.error(f"Zoom API Error (get_user_meetings): {resp.status_code} - {resp.text}")
             resp.raise_for_status()
             data = resp.json()
-            
+
             meetings.extend(data.get('meetings', []))
-            
+
             if data.get('next_page_token'):
                 params['next_page_token'] = data['next_page_token']
             else:
                 break
-        
+
         return meetings
 
     @retry_with_backoff(retries=3)
     def download_file(self, download_url, dest_path):
         """
         Download a file from Zoom.
-        Appends access token to the request for authentication.
         """
-        # Append access token if not already present
-        # For S2S OAuth, we just need the Bearer header usually, but for download_url 
-        # specifically, sometimes query param is needed: ?access_token=...
-        # actually for standard download_url, it redirects. Bearer token in header is safest.
-        
-        # However, getting 'download_url' from recording object directly often requires
-        # the user's ZAK token or just the account level OAuth token.
-        # Let's try standard Bearer header.
-        
         headers = {
             "Authorization": f"Bearer {self._get_access_token()}"
         }
@@ -178,39 +166,38 @@ class ZoomClient:
                 for chunk in r.iter_content(chunk_size=8192):
                     f.write(chunk)
         return True
-    
+
     @retry_with_backoff(retries=2)
     def delete_recording(self, meeting_id, action="trash"):
         """
         Delete a recording from Zoom cloud.
-        
+
         Args:
             meeting_id: The meeting ID or UUID
             action: 'trash' to move to trash, 'delete' to permanently delete
-            
+
         Returns:
             bool: True if successful
         """
         url = f"{self.base_url}/meetings/{meeting_id}/recordings"
         params = {"action": action}
-        
+
         self.logger.info(f"Deleting recording for meeting {meeting_id} (action: {action})")
-        
+
         try:
-            # Added a strict timeout so it NEVER hangs the background thread
             resp = requests.delete(url, headers=self.get_headers(), params=params, timeout=15)
-            
+
             if resp.status_code == 204:
                 self.logger.info(f"Successfully deleted recording for meeting {meeting_id} (204 No Content)")
                 return True
             elif resp.status_code == 404:
                 self.logger.warning(f"Recording not found for meeting {meeting_id} (may already be deleted)")
-                return True  # Consider this success since it's already gone
+                return True
             else:
                 self.logger.error(f"Failed to delete recording: {resp.status_code} - {resp.text}")
                 resp.raise_for_status()
                 return False
-                
+
         except requests.exceptions.Timeout:
             self.logger.error(f"TIMEOUT: Zoom API took too long to delete recording {meeting_id}")
             return False
@@ -232,8 +219,8 @@ class ZoomClient:
         url = f"{self.base_url}/meetings/{meeting_id}/recordings"
 
         resp = requests.get(url, headers=self.get_headers())
-        if resp.status_code == 404:
-            self.logger.warning(f"Meeting {meeting_id} recordings not found (404).")
+        if resp.status_code in (400, 404):
+            self.logger.warning(f"Meeting {meeting_id} recordings not found ({resp.status_code}) - may be deleted or expired.")
             return None
         if resp.status_code != 200:
             self.logger.error(f"Zoom API Error (get_meeting_recordings): {resp.status_code} - {resp.text}")

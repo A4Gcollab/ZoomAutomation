@@ -19,8 +19,8 @@ from src.config import DOWNLOAD_DIR
 logger = logging.getLogger("BackgroundService")
 
 # How often (in cycles) to run auto-recovery. Every 10 cycles = ~10 minutes.
-RECOVERY_EVERY_N_CYCLES = 10
-MAX_RETRIES = 3
+RECOVERY_EVERY_N_CYCLES = 30
+MAX_RETRIES = 10
 
 
 class BackgroundService(threading.Thread):
@@ -248,6 +248,8 @@ class BackgroundService(threading.Thread):
                 for pl in data.get('playlists', []):
                     if pl.get('playlist_name') == playlist_name:
                         return pl.get('drive_folder_id'), pl.get('transcript_folder_id')
+                # Fallback: return root-level default Drive folder for Miscellaneous/Default
+                return data.get('drive_folder_id'), data.get('transcript_folder_id')
         except Exception as e:
             logger.error(f"Failed to get drive folders: {e}")
         return None, None
@@ -267,6 +269,14 @@ class BackgroundService(threading.Thread):
                         logger.info(f"   Scan {name}: User {user.get('email')} -> {len(recs)} recordings found")
                         for r in recs:
                             r['account_name'] = name
+
+                            # Skip recordings still being processed by Zoom
+                            recording_files = r.get('recording_files', [])
+                            if recording_files:
+                                statuses = [f.get('status', '') for f in recording_files]
+                                if all(s == 'processing' for s in statuses):
+                                    logger.debug(f"   Skipping {r.get('topic', 'unknown')}: still processing on Zoom")
+                                    continue
 
                             # Use UUID as unique identifier (different for each recurring instance)
                             # Fall back to meeting ID if UUID not available
@@ -567,7 +577,7 @@ class BackgroundService(threading.Thread):
                 with open("traceback_error.txt", "w") as f:
                     f.write(traceback.format_exc())
 
-                retry_count = task.get('retry_count') or 0
+                retry_count = (task.get('retry_count') or 0) + 1
                 db.update_recording(zoom_id, {
                     "status": "ERROR",
                     "error_message": str(e)[:500],

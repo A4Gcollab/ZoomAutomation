@@ -1,37 +1,7 @@
-import type { NextConfig } from 'next';
+import type {NextConfig} from 'next';
 
 const nextConfig: NextConfig = {
-  experimental: {
-    // Fix workspace root warning
-    turbo: {
-      root: './frontend',
-    },
-  },
-  // Production optimizations
-  poweredByHeader: false,
-  compress: true,
-  // Security headers
-  async headers() {
-    return [
-      {
-        source: '/:path*',
-        headers: [
-          {
-            key: 'X-DNS-Prefetch-Control',
-            value: 'on',
-          },
-          {
-            key: 'X-Frame-Options',
-            value: 'SAMEORIGIN',
-          },
-          {
-            key: 'X-Content-Type-Options',
-            value: 'nosniff',
-          },
-        ],
-      },
-    ];
-  },
+  /* config options here */
   typescript: {
     ignoreBuildErrors: true,
   },

@@ -7,6 +7,7 @@ import {
   FolderKanban,
   MoreHorizontal,
   Youtube,
+  ExternalLink,
 } from "lucide-react";
 import {
   Table,
@@ -26,8 +27,24 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { completedRecordings, type CompletedRecording } from "@/lib/mock-data";
 import { cn } from "@/lib/utils";
+import { api } from "@/lib/api";
+
+type CompletedRecording = {
+  id: string;
+  topic: string;
+  team: string;
+  playlist: string;
+  approvedBy: string;
+  processedAt: string;
+  status: string;
+  duration?: string;
+  youtubeUrl?: string;
+  driveUrl?: string;
+  youtubeId?: string;
+  driveVideoId?: string;
+  driveTranscriptId?: string;
+};
 
 type SortConfig = {
   key: keyof CompletedRecording | null;
@@ -35,7 +52,8 @@ type SortConfig = {
 };
 
 export function CompletedHistory() {
-  const [data, setData] = React.useState<CompletedRecording[]>(completedRecordings);
+  const [data, setData] = React.useState<CompletedRecording[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [filter, setFilter] = React.useState("");
   const [sortConfig, setSortConfig] = React.useState<SortConfig>({
     key: "processedAt",
@@ -45,14 +63,57 @@ export function CompletedHistory() {
   const [expandedRow, setExpandedRow] = React.useState<string | null>(null);
   const rowsPerPage = 5;
 
+  // Fetch history from backend
+  React.useEffect(() => {
+    let isMounted = true;
+
+    const fetchHistory = async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      try {
+        if (isMounted) setLoading(true);
+        const history = await api.getHistory(100);
+
+        if (!isMounted) return;
+
+        const mappedHistory = Array.isArray(history) ? history.map((item: any) => ({
+          ...item,
+          id: item.zoom_id || item.id,
+          processedAt: item.processed_at || item.created_at || item.date_str || new Date().toISOString(),
+          approvedBy: item.approved_by || item.approvedBy || 'System',
+          youtubeUrl: item.youtube_url || item.youtubeUrl,
+          driveUrl: item.drive_url || item.driveUrl,
+        })) : [];
+
+        setData(mappedHistory);
+      } catch (error) {
+        if (!isMounted) return;
+        console.error('Failed to fetch history:', error);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchHistory();
+    const interval = setInterval(fetchHistory, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
   const sortedData = React.useMemo(() => {
     let sortableItems = [...data];
     if (sortConfig.key !== null) {
       sortableItems.sort((a, b) => {
-        if (a[sortConfig.key!] < b[sortConfig.key!]) {
+        const valA = a[sortConfig.key!] ?? '';
+        const valB = b[sortConfig.key!] ?? '';
+
+        if (valA < valB) {
           return sortConfig.direction === "ascending" ? -1 : 1;
         }
-        if (a[sortConfig.key!] > b[sortConfig.key!]) {
+        if (valA > valB) {
           return sortConfig.direction === "ascending" ? 1 : -1;
         }
         return 0;
@@ -90,7 +151,7 @@ export function CompletedHistory() {
   const toggleRow = (id: string) => {
     setExpandedRow(expandedRow === id ? null : id);
   };
-  
+
   const getApproverName = (email: string) => {
     return email.split('@')[0];
   }
@@ -144,6 +205,8 @@ export function CompletedHistory() {
                 >
                   <div className="flex items-center justify-end gap-2">Processed {getSortIcon("processedAt")}</div>
                 </TableHead>
+                <TableHead className="text-center">YouTube</TableHead>
+                <TableHead className="text-center">Drive</TableHead>
                 <TableHead>
                   <span className="sr-only">Actions</span>
                 </TableHead>
@@ -170,6 +233,36 @@ export function CompletedHistory() {
                       <TableCell className="text-right">
                         {new Date(recording.processedAt).toLocaleDateString()}
                       </TableCell>
+                      <TableCell className="text-center">
+                        {recording.youtubeId || recording.youtubeUrl ? (
+                          <a
+                            href={recording.youtubeUrl || `https://www.youtube.com/watch?v=${recording.youtubeId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-red-600 hover:text-red-700 hover:underline"
+                          >
+                            <Youtube className="h-4 w-4" />
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-center">
+                        {recording.driveVideoId || recording.driveUrl ? (
+                          <a
+                            href={recording.driveUrl || `https://drive.google.com/drive/folders/${recording.driveVideoId}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline"
+                          >
+                            <FolderKanban className="h-4 w-4" />
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <span className="text-muted-foreground text-xs">-</span>
+                        )}
+                      </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
                           <DropdownMenuTrigger asChild>
@@ -195,18 +288,18 @@ export function CompletedHistory() {
                     </TableRow>
                     {expandedRow === recording.id && (
                       <TableRow>
-                        <TableCell colSpan={7}>
+                        <TableCell colSpan={9}>
                           <div className="p-4 bg-muted rounded-md">
                             <h4 className="font-semibold mb-2">Recording Details</h4>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
-                                <div><span className="font-medium text-muted-foreground">Recording ID:</span> {recording.id}</div>
-                                <div><span className="font-medium text-muted-foreground">Duration:</span> {recording.duration}</div>
-                                <div><span className="font-medium text-muted-foreground">Processed:</span> {new Date(recording.processedAt).toLocaleString()}</div>
-                                <div className="col-span-1 md:col-span-3">
-                                  <Badge className={cn("text-white", recording.status === "Completed" ? "bg-chart-2" : "bg-primary")}>
-                                    Status: {recording.status}
-                                  </Badge>
-                                </div>
+                              <div><span className="font-medium text-muted-foreground">Recording ID:</span> {recording.id}</div>
+                              <div><span className="font-medium text-muted-foreground">Duration:</span> {recording.duration}</div>
+                              <div><span className="font-medium text-muted-foreground">Processed:</span> {new Date(recording.processedAt).toLocaleString()}</div>
+                              <div className="col-span-1 md:col-span-3">
+                                <Badge className={cn("text-white", recording.status === "Completed" ? "bg-chart-2" : "bg-primary")}>
+                                  Status: {recording.status}
+                                </Badge>
+                              </div>
                             </div>
                           </div>
                         </TableCell>
@@ -216,8 +309,8 @@ export function CompletedHistory() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="h-24 text-center">
-                    No results found.
+                  <TableCell colSpan={9} className="h-24 text-center">
+                    {loading ? "Loading..." : "No results found."}
                   </TableCell>
                 </TableRow>
               )}

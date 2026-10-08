@@ -1,4 +1,3 @@
-import { EventEmitter } from 'events';
 import { type FirestorePermissionError } from './errors';
 
 type AppEvents = {
@@ -6,18 +5,29 @@ type AppEvents = {
 };
 
 class TypedEventEmitter<T extends Record<string, any>> {
-  private emitter = new EventEmitter();
+  private listeners: { [K in keyof T]?: Array<T[K]> } = {};
 
   emit<K extends keyof T>(event: K, ...args: Parameters<T[K]>) {
-    this.emitter.emit(event as string, ...args);
+    const eventListeners = this.listeners[event];
+    if (eventListeners) {
+      eventListeners.forEach((listener) => {
+        (listener as any)(...args);
+      });
+    }
   }
 
   on<K extends keyof T>(event: K, listener: T[K]) {
-    this.emitter.on(event as string, listener);
+    if (!this.listeners[event]) {
+      this.listeners[event] = [];
+    }
+    this.listeners[event]!.push(listener);
   }
 
   off<K extends keyof T>(event: K, listener: T[K]) {
-    this.emitter.off(event as string, listener);
+    const eventListeners = this.listeners[event];
+    if (eventListeners) {
+      this.listeners[event] = eventListeners.filter((l) => l !== listener) as any;
+    }
   }
 }
 

@@ -5,12 +5,21 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
-import { Folder, PlusCircle, Trash2 } from "lucide-react";
+import { Folder, ExternalLink } from "lucide-react";
 
 const linkedFolders = [
-    { id: '1', name: 'All-Hands Recordings', linkedAt: '2023-10-26', status: 'Active' },
-    { id: '2', name: 'Engineering Demos', linkedAt: '2023-10-26', status: 'Active' },
-    { id: '3', name: 'Marketing Presentations', linkedAt: '2023-11-01', status: 'Active' },
+    {
+        id: '1qalNa2vYt5JXnw7XOy8GeTGZnveP0-s5',
+        name: 'Video Recordings',
+        url: 'https://drive.google.com/open?id=1qalNa2vYt5JXnw7XOy8GeTGZnveP0-s5',
+        status: 'Active',
+    },
+    {
+        id: '16B8FVZ28pUH77ehka-0iuyLgDeEaQZN4',
+        name: 'Transcripts',
+        url: 'https://drive.google.com/open?id=16B8FVZ28pUH77ehka-0iuyLgDeEaQZN4',
+        status: 'Active',
+    },
 ];
 
 export default function DrivePage() {
@@ -21,18 +30,14 @@ export default function DrivePage() {
             <h1 className="text-3xl font-bold tracking-tight">
             Google Drive Folders
             </h1>
-            <Button>
-                <PlusCircle className="mr-2" />
-                Link New Folder
-            </Button>
         </div>
         <p className="text-muted-foreground">Manage your Google Drive folder integrations here.</p>
-        
+
         <Card>
             <CardHeader>
                 <CardTitle>Linked Folders</CardTitle>
                 <CardDescription>
-                    These folders are used for storing raw recordings and assets.
+                    These folders are used for storing raw recordings and transcripts.
                 </CardDescription>
             </CardHeader>
             <CardContent>
@@ -40,7 +45,6 @@ export default function DrivePage() {
                     <TableHeader>
                         <TableRow>
                             <TableHead>Folder Name</TableHead>
-                            <TableHead>Linked On</TableHead>
                             <TableHead>Status</TableHead>
                             <TableHead className="text-right">Actions</TableHead>
                         </TableRow>
@@ -52,11 +56,12 @@ export default function DrivePage() {
                                     <Folder className="h-4 w-4 text-muted-foreground" />
                                     {folder.name}
                                 </TableCell>
-                                <TableCell>{new Date(folder.linkedAt).toLocaleDateString()}</TableCell>
                                 <TableCell><Badge className="bg-chart-2 text-white">{folder.status}</Badge></TableCell>
                                 <TableCell className="text-right">
-                                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
-                                        <Trash2 className="h-4 w-4" />
+                                    <Button variant="ghost" size="icon" asChild>
+                                        <a href={folder.url} target="_blank" rel="noopener noreferrer" title="Open in Drive">
+                                            <ExternalLink className="h-4 w-4" />
+                                        </a>
                                     </Button>
                                 </TableCell>
                             </TableRow>

@@ -24,13 +24,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import {
-  pendingRecordings as initialData,
-  teams as initialTeams,
-  playlists as initialPlaylists,
-  type PendingRecording,
-} from '@/lib/mock-data';
+import { type PendingRecording } from '@/lib/mock-data';
 import { cn } from '@/lib/utils';
+import { api } from '@/lib/api';
 import {
   Dialog,
   DialogContent,
@@ -159,10 +155,19 @@ function RecordingRow({
     }
   };
 
+  const instanceCount = (recording as any).instanceCount || 1;
+
   return (
     <>
       <TableRow>
-        <TableCell className="font-medium">{recording.topic}</TableCell>
+        <TableCell className="font-medium">
+          {recording.topic}
+          {instanceCount > 1 && (
+            <span className="ml-2 inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
+              {instanceCount} sessions
+            </span>
+          )}
+        </TableCell>
         <TableCell className="hidden md:table-cell">{new Date(recording.date).toLocaleDateString()}</TableCell>
         <TableCell className="hidden lg:table-cell">{recording.duration}</TableCell>
         <TableCell>
@@ -251,32 +256,114 @@ function RecordingRow({
 
 export function PendingQueue() {
   const [state, setState] = React.useState<RecordingState>({
-    recordings: initialData,
+    recordings: [],
     approved: [],
   });
-  const [teams, setTeams] = React.useState(initialTeams);
-  const [playlists, setPlaylists] = React.useState(initialPlaylists);
+  const [teams, setTeams] = React.useState<string[]>([]);
+  const [playlists, setPlaylists] = React.useState<string[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const { toast } = useToast();
 
-  const handleApprove = (id: string, team: string, playlist: string) => {
-    setState((prevState) => ({
-      ...prevState,
-      approved: [...prevState.approved, id],
-    }));
+  const [error, setError] = React.useState<string | null>(null);
+  const [lastUpdated, setLastUpdated] = React.useState<Date | null>(null);
 
-    // In a real app, this would trigger a server action.
-    // For now, we'll just show a toast and remove it from the list after a delay.
-    toast({
-      title: 'Recording Approved',
-      description: `"${initialData.find((r) => r.id === id)?.topic}" is being processed.`,
-    });
+  // Fetch queue and options from backend
+  React.useEffect(() => {
+    let isMounted = true;
 
-    setTimeout(() => {
+    const fetchData = async () => {
+      const token = localStorage.getItem('auth_token');
+      if (!token) return;
+
+      try {
+        if (isMounted) setLoading(true);
+        const [queueData, options] = await Promise.all([
+          api.getQueue(),
+          api.getOptions()
+        ]);
+
+        if (!isMounted) return;
+
+        const mappedQueue = Array.isArray(queueData) ? queueData.map((item: any) => ({
+          ...item,
+          id: item.zoom_id || item.id,
+          date: item.start_time || item.date_str,
+          instanceCount: item.instance_count || 1,
+        })) : [];
+
+        setState({ recordings: mappedQueue, approved: [] });
+        setTeams(options.teams || []);
+        setPlaylists(options.playlists || []);
+        setError(null);
+        setLastUpdated(new Date());
+      } catch (err) {
+        if (!isMounted) return;
+        console.error('Failed to fetch queue data:', err);
+        if (!(err instanceof Error) || !err.message.includes('Unauthorized')) {
+          setError('Could not connect to server. Retrying...');
+        }
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    fetchData();
+    const interval = setInterval(fetchData, 30000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
+
+  const refetchQueue = React.useCallback(async () => {
+    const token = localStorage.getItem('auth_token');
+    if (!token) return;
+    try {
+      const queueData = await api.getQueue();
+      const mappedQueue = Array.isArray(queueData) ? queueData.map((item: any) => ({
+        ...item,
+        id: item.zoom_id || item.id,
+        date: item.start_time || item.date_str,
+        instanceCount: item.instance_count || 1,
+      })) : [];
+      setState({ recordings: mappedQueue, approved: [] });
+      setLastUpdated(new Date());
+    } catch (err) {
+      // silent - will retry on next interval
+    }
+  }, []);
+
+  const handleApprove = async (id: string, team: string, playlist: string) => {
+    try {
+      const result = await api.approveRecording(id, team, playlist);
+
+      const recording = state.recordings.find((r) => r.id === id);
+      const bulkCount = (result as any)?.bulk_approved || 0;
+      const desc = bulkCount > 1
+        ? `"${recording?.topic}" and ${bulkCount - 1} other instance(s) approved.`
+        : `"${recording?.topic}" is being processed.`;
+
+      toast({
+        title: 'Recording Approved',
+        description: desc,
+      });
+
+      // Immediately remove from UI and refetch
       setState((prevState) => ({
         ...prevState,
         recordings: prevState.recordings.filter((r) => r.id !== id),
+        approved: [...prevState.approved, id],
       }));
-    }, 2000);
+
+      // Refetch to get accurate state from server
+      setTimeout(refetchQueue, 500);
+    } catch (error: any) {
+      toast({
+        variant: "destructive",
+        title: 'Approval Failed',
+        description: error.message || 'Failed to approve recording',
+      });
+    }
   };
 
   const handleAddTeam = (newTeam: string) => {
@@ -314,16 +401,37 @@ export function PendingQueue() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Pending Queue</CardTitle>
-        <CardDescription>
-          Recordings waiting for approval and assignment.
-        </CardDescription>
+        <div className="flex items-center justify-between">
+          <div>
+            <CardTitle>Pending Queue</CardTitle>
+            <CardDescription>
+              Recordings waiting for approval and assignment.
+              {lastUpdated && (
+                <span className="ml-2 text-xs text-muted-foreground">
+                  Updated: {lastUpdated.toLocaleTimeString()}
+                </span>
+              )}
+            </CardDescription>
+          </div>
+          {error && (
+            <span className="text-xs text-destructive animate-pulse">{error}</span>
+          )}
+        </div>
       </CardHeader>
       <CardContent>
         <div className="rounded-md border">
           <Table>
             <TableBody>
-              {state.recordings.length > 0 ? (
+              {loading && state.recordings.length === 0 ? (
+                <TableRow>
+                  <TableCell colSpan={6} className="h-24 text-center">
+                    <div className="flex items-center justify-center gap-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-primary"></div>
+                      Loading recordings...
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ) : state.recordings.length > 0 ? (
                 state.recordings.map((recording) => (
                   <RecordingRow
                     key={recording.id}

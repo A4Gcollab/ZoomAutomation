@@ -4,13 +4,14 @@ import React, { useEffect } from 'react';
 import { useToast } from '@/hooks/use-toast';
 import { errorEmitter } from '@/firebase/error-emitter';
 import { FirestorePermissionError } from '@/firebase/errors';
+import { logger } from '@/lib/logger';
 
 export function FirebaseErrorListener() {
   const { toast } = useToast();
 
   useEffect(() => {
     const handleError = (error: FirestorePermissionError | Error) => {
-      console.error(error);
+      logger.error(error);
       toast({
         variant: 'destructive',
         title: 'An error occurred',

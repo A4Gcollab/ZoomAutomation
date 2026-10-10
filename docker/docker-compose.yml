@@ -1,0 +1,58 @@
+name: ytz
+
+# Two containers:
+#   app  = backend (uvicorn 8001) + frontend (next 9002), combined, run by supervisord
+#   hevc = night-time HEVC compression worker (compresses the Drive copies in place)
+#
+# All state lives on the HOST and is mounted in (so it survives rebuilds and is the single copy
+# both containers share): ../secrets ../data ../config ../downloads  +  the backend ../.env
+#
+# Build args for the frontend (NEXT_PUBLIC_*) are read from THIS directory's `.env`
+# (docker/.env — git-ignored; copy docker/.env.example and fill from the live frontend .env).
+# Ports are published on 127.0.0.1 only; nginx (za.omysha.org) reaches them, the public cannot.
+
+services:
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.app
+      args:
+        NEXT_PUBLIC_FIREBASE_API_KEY: ${NEXT_PUBLIC_FIREBASE_API_KEY}
+        NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: ${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN}
+        NEXT_PUBLIC_FIREBASE_PROJECT_ID: ${NEXT_PUBLIC_FIREBASE_PROJECT_ID}
+        NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: ${NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET}
+        NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: ${NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID}
+        NEXT_PUBLIC_FIREBASE_APP_ID: ${NEXT_PUBLIC_FIREBASE_APP_ID}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL}
+        NEXT_PUBLIC_WS_URL: ${NEXT_PUBLIC_WS_URL}
+    container_name: ytz-app
+    restart: unless-stopped
+    env_file: [ ../.env ]              # backend runtime env (same file the live backend uses)
+    volumes:
+      - ../secrets:/app/secrets
+      - ../data:/app/data
+      - ../config:/app/config
+      - ../downloads:/app/downloads
+    ports:
+      - "127.0.0.1:8001:8001"          # backend  (nginx -> here)
+      - "127.0.0.1:9002:9002"          # frontend (nginx -> here)
+    mem_limit: 900m
+    cpus: "1.5"
+
+  hevc:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.hevc
+    container_name: ytz-hevc
+    restart: unless-stopped
+    env_file: [ ../.env ]              # same Drive/Zoom creds + config as the backend
+    volumes:
+      - ../secrets:/app/secrets
+      - ../data:/app/data              # shared SQLite (vong_v2.db) — opened WAL + busy_timeout
+      - ../config:/app/config
+      - ../downloads:/app/downloads    # scratch space for download -> encode -> upload
+    environment:
+      HEVC_WINDOW_UTC: "18:00-00:30"   # night window = 23:30-06:00 IST
+      HEVC_CRF: "28"                   # 28 = ~72% saving; 26 = sharper text, bigger file
+    mem_limit: 1200m                   # HEVC encode ~450MB + headroom
+    cpus: "1.0"                        # one core; the worker also nice's ffmpeg internally

@@ -1,0 +1,18 @@
+# ZoomAutomation — HEVC night-compression worker (lean: Python 3.12 + ffmpeg only).
+# Reuses the app's own modules (src/config.py, src/drive_client.py) + the shared SQLite DB.
+# Runs docker/compress_worker.py; resource-capped via docker-compose (mem_limit/cpus).
+FROM python:3.12-slim
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        ffmpeg tini ca-certificates \
+    && apt-get clean && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+
+# App code (src/ etc.); secrets/, data/, config/, downloads/ come from mounted volumes.
+COPY . .
+
+ENTRYPOINT ["/usr/bin/tini","--"]
+CMD ["python","-u","docker/compress_worker.py"]

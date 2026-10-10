@@ -1,29 +1,33 @@
 #!/usr/bin/env python3
 """
-ytz HEVC night-time compression worker  (runs in its own resource-capped container).
+ytz HEVC night-time compression worker.
 
-BASELINE = in-place shrink of the Drive copy ("Plan C"): ZERO changes to the live pipeline,
-never touches Zoom or YouTube. The live pipeline keeps doing Zoom -> YouTube + Drive(raw) -> trash
-exactly as today; this worker only shrinks the Drive copy that already exists. The END STATE is
-identical to "Plan A" (Drive ends up holding only the compressed file) — the raw just lives on
-Drive for a few hours until the night window instead of never.
+HIBERNATING: not an always-on process. A systemd timer on the host starts the container at night
+(see docker/systemd/); the worker drains the queue, retries failures, then EXITS once there is
+nothing eligible left or the window closes. With `restart: "no"` the container then stays stopped
+all day -> 0 RAM until the next night. (HEVC_IGNORE_WINDOW=1 runs once on demand, e.g. to test.)
 
-Each night-window pass picks ONE COMPLETED recording whose Drive copy is still raw (compressed=0):
-   1. download the raw MP4 from DRIVE            -> /app/downloads
-   2. HEVC-encode with libx265 (nice'd, 1 core; the container also caps CPU/RAM)
-   3. upload the compressed MP4 to the SAME Drive folder (same filename)
-   4. verify the upload (size matches local, and < raw)  -- only then:
-   5. delete the OLD raw Drive file, repoint recordings.drive_url, set compressed=1
-   6. clean scratch; repeat until the window closes or the queue is empty.
+Per video (one at a time): download the raw mp4 from DRIVE -> HEVC-encode (libx265, 1 nice'd core,
+container-capped) -> upload the compressed mp4 to the SAME Drive folder -> verify (size matches,
+and smaller) -> ONLY THEN delete the old raw Drive file, repoint recordings.drive_url, compressed=1.
+Zoom and YouTube are never touched; the live pipeline is unchanged. End state = Drive holds only the
+compressed file; the raw just lived there until night.
 
-SAFETY: the raw Drive file is deleted ONLY after the compressed copy is verified uploaded, so there
-is never a moment with zero Drive backup, and YouTube stays as the second backup throughout.
+RETRY (round-robin, same night): always take the eligible video (compressed=0, attempts<MAX) with
+the FEWEST attempts that is not within its cooldown. So it tries A; if A fails it moves to B, C...
+and comes back to A later. A failure bumps compress_attempts and leaves the video eligible until it
+hits HEVC_MAX_ATTEMPTS (default 3) lifetime attempts, each at least HEVC_COOLDOWN_MIN (default 15)
+minutes apart -- so a transient blip gets a real retry, a sole failing video is not hammered, and
+unfinished retries spill to the next night if the window closes. After MAX attempts it is parked
+(reset with: UPDATE recordings SET compress_attempts=0, compress_error=NULL WHERE zoom_id='...').
 
-Verified against the live code (2026-10):
-  - DB: SQLite at config.DATA_DIR/"vong_v2.db", table `recordings`, done status = 'COMPLETED',
-    key col `zoom_id`, Drive link in `drive_url` (https://drive.google.com/file/d/<id>/view).
-  - DriveClient has NO download/delete methods -> we use its raw googleapiclient `.service`.
-  - The `compressed` / `compressed_at` columns don't exist yet -> this worker adds them (idempotent).
+A failure NEVER touches Zoom (the Zoom-deletion gate is independent). Errors are logged to the
+recording's row (compress_error) AND to the app's `system_logs` table, so they appear in the
+dashboard's "System Logs" tab, e.g. "[hevc] FAILED <topic> (attempt 2/3): <error>".
+
+Verified against live code (2026-10): SQLite config.DATA_DIR/"vong_v2.db", table `recordings`, done
+status 'COMPLETED', key `zoom_id`, Drive link in `drive_url`; DriveClient has no download/delete ->
+use its raw googleapiclient `.service`; app logs via INSERT INTO system_logs(level, message).
 """
 import os, re, time, subprocess, datetime, sqlite3, sys
 sys.path.insert(0, ".")                       # cwd = /app, so `from src import ...` resolves
@@ -33,11 +37,16 @@ from googleapiclient.http import MediaIoBaseDownload
 
 DB      = str(config.DATA_DIR / "vong_v2.db")
 CRF     = os.getenv("HEVC_CRF", "28")
-WINDOW  = os.getenv("HEVC_WINDOW_UTC", "18:00-00:30")      # start-end, UTC (23:30-06:00 IST)
+WINDOW  = os.getenv("HEVC_WINDOW_UTC", "16:30-01:30")        # start-end, UTC (22:00-07:00 IST)
 SCRATCH = os.getenv("HEVC_SCRATCH", "/app/downloads")
+MAX_ATTEMPTS = int(os.getenv("HEVC_MAX_ATTEMPTS", "3"))
+COOLDOWN_MIN = int(os.getenv("HEVC_COOLDOWN_MIN", "15"))
+IGNORE_WINDOW = os.getenv("HEVC_IGNORE_WINDOW", "0") == "1"  # run once regardless of time (testing)
 
 
 def in_window():
+    if IGNORE_WINDOW:
+        return True
     s, e = WINDOW.split("-")
     t = lambda x: datetime.time(int(x[:2]), int(x[3:5]))
     now, a, b = datetime.datetime.utcnow().time(), t(s), t(e)
@@ -51,14 +60,29 @@ def db():
     return c
 
 
-def ensure_schema():
-    c = db()
+def add_log(c, level, message):
+    # same table/shape the app's db.add_log() uses -> shows in the dashboard "System Logs" tab
+    try:
+        c.execute("INSERT INTO system_logs (level, message) VALUES (?, ?)", (level, message))
+        c.commit()
+    except Exception:
+        pass
+    print(f"[hevc] {level}: {message}", flush=True)
+
+
+def ensure_schema(c):
     cols = {r[1] for r in c.execute("PRAGMA table_info(recordings)")}
-    if "compressed" not in cols:
-        c.execute("ALTER TABLE recordings ADD COLUMN compressed INTEGER NOT NULL DEFAULT 0")
-    if "compressed_at" not in cols:
-        c.execute("ALTER TABLE recordings ADD COLUMN compressed_at TEXT")
-    c.commit(); c.close()
+    adds = {
+        "compressed":            "INTEGER NOT NULL DEFAULT 0",
+        "compressed_at":         "TEXT",
+        "compress_attempts":     "INTEGER NOT NULL DEFAULT 0",
+        "compress_error":        "TEXT",
+        "compress_last_attempt": "TEXT",
+    }
+    for col, decl in adds.items():
+        if col not in cols:
+            c.execute(f"ALTER TABLE recordings ADD COLUMN {col} {decl}")
+    c.commit()
 
 
 def drive_id(url):
@@ -66,16 +90,25 @@ def drive_id(url):
     return m.group(1) if m else None
 
 
-def next_job(c, skip):
-    rows = c.execute(
-        "SELECT zoom_id, topic, drive_url FROM recordings "
+def candidate_count(c):
+    """Videos still needing compression and not yet out of attempts (ignores cooldown)."""
+    return c.execute(
+        "SELECT COUNT(*) FROM recordings WHERE status='COMPLETED' AND COALESCE(compressed,0)=0 "
+        "AND COALESCE(compress_attempts,0) < ? AND drive_url IS NOT NULL AND drive_url!=''",
+        (MAX_ATTEMPTS,)).fetchone()[0]
+
+
+def next_ready(c):
+    """Eligible video with fewest attempts whose cooldown has elapsed; None if all are cooling down."""
+    cutoff = (datetime.datetime.utcnow() - datetime.timedelta(minutes=COOLDOWN_MIN)).isoformat()
+    return c.execute(
+        "SELECT zoom_id, topic, drive_url, COALESCE(compress_attempts,0) FROM recordings "
         "WHERE status='COMPLETED' AND COALESCE(compressed,0)=0 "
+        "AND COALESCE(compress_attempts,0) < ? "
         "AND drive_url IS NOT NULL AND drive_url!='' "
-        "ORDER BY date_str").fetchall()
-    for r in rows:
-        if r[0] not in skip:
-            return r
-    return None
+        "AND (compress_last_attempt IS NULL OR compress_last_attempt < ?) "
+        "ORDER BY COALESCE(compress_attempts,0) ASC, date_str ASC LIMIT 1",
+        (MAX_ATTEMPTS, cutoff)).fetchone()
 
 
 def download(svc, fid, path):
@@ -87,71 +120,90 @@ def download(svc, fid, path):
             _, done = dl.next_chunk()
 
 
+def process(dr, svc, zid, topic, durl, attempts):
+    attempt_no = attempts + 1
+    now = datetime.datetime.utcnow().isoformat()
+    c = db()
+    c.execute("UPDATE recordings SET compress_attempts=COALESCE(compress_attempts,0)+1, "
+              "compress_last_attempt=? WHERE zoom_id=?", (now, zid))
+    c.commit(); c.close()
+
+    fid = drive_id(durl)
+    raw = os.path.join(SCRATCH, f"raw_{fid or zid}.mp4")
+    out = os.path.join(SCRATCH, f"hevc_{fid or zid}.mp4")
+    try:
+        if not fid:
+            raise RuntimeError(f"cannot parse Drive id from {durl!r}")
+        meta = svc.files().get(fileId=fid, fields="name,parents,size",
+                               supportsAllDrives=True).execute()
+        name, parent, rawsize = meta["name"], meta["parents"][0], int(meta.get("size", 0))
+
+        download(svc, fid, raw)
+        subprocess.run(
+            ["nice", "-n", "19", "ionice", "-c3",
+             "ffmpeg", "-y", "-i", raw,
+             "-c:v", "libx265", "-preset", "medium", "-crf", str(CRF),
+             "-x265-params", "pools=1:frame-threads=1",
+             "-tag:v", "hvc1", "-c:a", "copy", "-movflags", "+faststart", out],
+            check=True)
+
+        newsize = os.path.getsize(out)
+        if newsize < 1_000_000 or newsize >= rawsize:
+            raise RuntimeError(f"bad output size {newsize} vs raw {rawsize}")
+
+        new_id = dr.upload_file(out, name, parent)
+        if not dr.check_file_integrity(new_id, out):
+            raise RuntimeError("drive upload size mismatch")
+
+        svc.files().delete(fileId=fid, supportsAllDrives=True).execute()   # raw removed ONLY now
+        c = db()
+        c.execute("UPDATE recordings SET drive_url=?, compressed=1, compressed_at=?, "
+                  "compress_error=NULL WHERE zoom_id=?",
+                  (f"https://drive.google.com/file/d/{new_id}/view", now, zid))
+        add_log(c, "INFO", f"[hevc] OK {topic}: {rawsize//1048576}->{newsize//1048576} MiB")
+        c.commit(); c.close()
+        return True
+    except Exception as e:
+        err = str(e)[:500]
+        c = db()
+        c.execute("UPDATE recordings SET compress_error=? WHERE zoom_id=?", (err, zid))
+        if attempt_no >= MAX_ATTEMPTS:
+            add_log(c, "ERROR", f"[hevc] GIVING UP on {topic} after {attempt_no}/{MAX_ATTEMPTS} "
+                                f"(manual reset needed): {err}")
+        else:
+            add_log(c, "ERROR", f"[hevc] FAILED {topic} (attempt {attempt_no}/{MAX_ATTEMPTS}): {err}")
+        c.commit(); c.close()
+        return False
+    finally:
+        for f in (raw, out):
+            try: os.remove(f)
+            except OSError: pass
+
+
 def main():
-    ensure_schema()
+    c0 = db(); ensure_schema(c0); add_log(c0, "INFO", "HEVC worker started"); c0.close()
     dr = DriveClient(auth_mode=config.DRIVE_AUTH_MODE,
                      token_path=config.DRIVE_TOKEN_PATH,
                      client_secret_path=config.YOUTUBE_CLIENT_SECRET_PATH,
                      service_account_file=config.DRIVE_SERVICE_ACCOUNT_FILE)
     svc = dr.service
     os.makedirs(SCRATCH, exist_ok=True)
-    skip = set()                              # zoom_ids that failed this run -> don't hot-loop on them
-    print(f"[hevc] worker up. DB={DB} CRF={CRF} window(UTC)={WINDOW}", flush=True)
+    ok = fail = 0
 
-    while True:
-        if not in_window():
-            time.sleep(300); continue
-        c = db(); job = next_job(c, skip); c.close()
-        if not job:
-            time.sleep(600); continue         # nothing left (or all skipped) — recheck later
-        zid, topic, durl = job
-        fid = drive_id(durl)
-        if not fid:
-            print(f"[hevc] SKIP {topic}: cannot parse Drive id from {durl!r}", flush=True)
-            skip.add(zid); continue
-        raw = os.path.join(SCRATCH, f"raw_{fid}.mp4")
-        out = os.path.join(SCRATCH, f"hevc_{fid}.mp4")
-        try:
-            meta = svc.files().get(fileId=fid, fields="name,parents,size",
-                                   supportsAllDrives=True).execute()
-            name    = meta["name"]
-            parent  = meta["parents"][0]
-            rawsize = int(meta.get("size", 0))
+    while in_window():
+        c = db(); n = candidate_count(c); job = next_ready(c) if n else None; c.close()
+        if n == 0:
+            break                             # nothing left to compress -> exit (frees RAM)
+        if job is None:
+            time.sleep(90); continue          # all remaining are within cooldown -> wait, then recheck
+        zid, topic, durl, attempts = job
+        if process(dr, svc, zid, topic, durl, attempts):
+            ok += 1
+        else:
+            fail += 1
+        time.sleep(5)
 
-            download(svc, fid, raw)
-
-            # 1 core, nice'd + ionice'd; hvc1 tag + faststart so the Drive preview plays the HEVC file.
-            subprocess.run(
-                ["nice", "-n", "19", "ionice", "-c3",
-                 "ffmpeg", "-y", "-i", raw,
-                 "-c:v", "libx265", "-preset", "medium", "-crf", str(CRF),
-                 "-x265-params", "pools=1:frame-threads=1",
-                 "-tag:v", "hvc1", "-c:a", "copy", "-movflags", "+faststart", out],
-                check=True)
-
-            newsize = os.path.getsize(out)
-            if newsize < 1_000_000 or newsize >= rawsize:
-                raise RuntimeError(f"bad output size {newsize} vs raw {rawsize}")
-
-            new_id = dr.upload_file(out, name, parent)            # upload compressed to same folder
-            if not dr.check_file_integrity(new_id, out):          # verify remote size == local
-                raise RuntimeError("drive upload size mismatch")
-
-            svc.files().delete(fileId=fid, supportsAllDrives=True).execute()   # remove raw ONLY now
-            c = db()
-            c.execute("UPDATE recordings SET drive_url=?, compressed=1, compressed_at=? WHERE zoom_id=?",
-                      (f"https://drive.google.com/file/d/{new_id}/view",
-                       datetime.datetime.utcnow().isoformat(), zid))
-            c.commit(); c.close()
-            print(f"[hevc] OK {topic}: {rawsize // 1048576} -> {newsize // 1048576} MiB", flush=True)
-        except Exception as e:
-            print(f"[hevc] SKIP {topic}: {e}", flush=True)
-            skip.add(zid)                      # retry on next container restart, not in a tight loop
-        finally:
-            for f in (raw, out):
-                try: os.remove(f)
-                except OSError: pass
-        time.sleep(10)
+    c = db(); add_log(c, "INFO", f"HEVC worker exiting (ok={ok}, failed={fail})"); c.close()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,27 @@
+# Build-context excludes (keeps secrets + bulky/ephemeral dirs out of the image)
+.git
+.github
+**/__pycache__
+**/*.pyc
+# python venvs
+venv
+.venv
+# node / next build artifacts (frontend is rebuilt inside the image)
+frontend/node_modules
+frontend/.next
+node_modules
+.next
+# secrets, runtime data, scratch — all provided at runtime via volumes
+secrets
+data
+downloads
+.env
+**/.env
+**/.env.*
+!**/.env.example
+# logs / local junk
+*.log
+setup_log.txt
+setup_error.txt
+trace_auth.txt
+traceback_error.txt

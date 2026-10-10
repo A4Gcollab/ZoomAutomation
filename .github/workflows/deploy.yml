@@ -1,0 +1,68 @@
+name: Deploy ytz (Docker)
+
+# MANUAL ONLY — this box also runs Authentik/IdP + Moodle + RecSup, so deploys never auto-fire.
+# Run it from the Actions tab ("Run workflow"). It deploys whatever branch you pick.
+#
+# This workflow assumes the ONE-TIME pm2 -> Docker cutover has already been done on the server
+# (see docker/README.md). It just updates code + rebuilds + restarts the containers.
+#
+# Required repo secrets:  SSH_HOST, SSH_USER, SSH_KEY   (optional: SSH_PORT, default 22)
+# Required on the server: /opt/ZoomAutomation checked out as a git repo owned by the deploy user,
+#                         with docker/.env (NEXT_PUBLIC_* build args) in place.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "Branch or commit to deploy"
+        required: true
+        default: "main"
+
+concurrency:
+  group: ytz-deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "${{ secrets.SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "${{ secrets.SSH_PORT || '22' }}" -H "${{ secrets.SSH_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Deploy over SSH
+        env:
+          REF: ${{ github.event.inputs.ref }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "${{ secrets.SSH_PORT || '22' }}" \
+            "${{ secrets.SSH_USER }}@${{ secrets.SSH_HOST }}" REF="$REF" 'bash -seo pipefail' <<'REMOTE'
+            set -euo pipefail
+            APP=/opt/ZoomAutomation
+            cd "$APP"
+
+            echo "==> fetching ${REF}"
+            git fetch --prune origin
+            git checkout -f "${REF}" 2>/dev/null || git checkout -f -B "${REF}" "origin/${REF}"
+            git reset --hard "origin/${REF}" 2>/dev/null || git reset --hard "${REF}"
+            echo "deploying $(git rev-parse --short HEAD) - $(git log -1 --pretty=%s)"
+
+            cd "$APP/docker"
+            test -f .env || { echo "ERROR: $APP/docker/.env (NEXT_PUBLIC_* build args) is missing"; exit 1; }
+
+            echo "==> building images (this is the heavy step; runs on the box)"
+            docker compose build
+
+            echo "==> starting/updating containers"
+            docker compose up -d
+
+            echo "==> status"
+            docker compose ps
+            sleep 8
+            # tolerant health checks (non-zero backend doc route is not fatal)
+            curl -fsS http://127.0.0.1:9002 >/dev/null && echo "frontend (9002) OK" || { echo "frontend check FAILED"; exit 1; }
+            curl -fsS http://127.0.0.1:8001/docs >/dev/null && echo "backend (8001) OK" || echo "backend /docs not 200 (non-fatal)"
+            echo "==> deploy complete"
+          REMOTE

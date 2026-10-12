@@ -47,16 +47,26 @@ sudo systemctl daemon-reload && sudo systemctl enable --now ytz-hevc.timer
 
 ## The HEVC worker (`compress_worker.py`)
 
-**What it does = shrink the Drive copy *in place* at night.** Zero changes to the live pipeline;
-never touches Zoom or YouTube:
+**What it does (PLAN A) = compress from Zoom, upload ONLY the compressed file to Drive.** The main
+pipeline uploads to YouTube immediately but no longer uploads the raw video to Drive, so a completed
+recording has `youtube_url` set and `drive_url` empty. This worker then:
 
-1. Pick a `COMPLETED` recording whose Drive copy is still raw (`compressed=0`).
-2. Download the raw from Drive → HEVC-encode (`libx265 -crf 28`, one nice'd core) → upload the
-   compressed file to the same Drive folder → verify (size matches, and smaller than raw).
-3. **Only then** delete the old raw Drive file, repoint `recordings.drive_url`, set `compressed=1`.
+1. Pick a `COMPLETED` recording that's on YouTube but has **no Drive copy yet** (`drive_url` empty).
+2. Re-fetch the raw MP4 URL from **Zoom** and download it → HEVC-encode (`libx265 -crf 28`, one
+   nice'd core) → upload the **compressed** file to the recording's Drive folder (by playlist) →
+   verify (size matches, and smaller than raw).
+3. **Only then** set `recordings.drive_url` + `compressed=1`.
 
-The raw is deleted only after the compressed copy is verified, and YouTube stays as the second
-backup throughout. **End state = Drive holds only the compressed file.**
+Setting `drive_url` is what lets the main pipeline's existing Zoom-deletion gate (`youtube_url` ok
+**and** `drive_url` set) trash the recording from Zoom — so **Zoom is freed only after the compressed
+copy exists**, and no raw is ever double-uploaded. YouTube is the immediate backup throughout, so
+nothing is ever at risk. (It reuses `BackgroundService._init_clients()` for the Zoom/Drive clients so
+none of the Zoom logic is duplicated.)
+
+> Backlog: handled as **fill-in work**. New recordings (no Drive copy, pulled from Zoom) are always
+> done **first**; only when none are left does the worker shrink an old recording's existing **raw
+> Drive copy in place** (download raw from Drive → compress → replace → delete the old raw). So the
+> archive is compressed over time using spare night capacity, without ever delaying recent videos.
 
 ### Hibernation (0 RAM during the day)
 The worker is **not** always-on. A systemd timer (`docker/systemd/`) starts the container nightly;

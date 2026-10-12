@@ -518,24 +518,16 @@ class BackgroundService(threading.Thread):
                     else:
                         logger.error(f"   ❌ No YouTube playlist ID found for: {playlist}")
 
-                # 3. UPLOAD video + transcript directly to Drive from local file
+                # 3. Drive upload. PLAN A: the raw video is NOT uploaded here (no double upload).
+                #    The night HEVC worker compresses this recording from Zoom and uploads ONLY the
+                #    compressed file to Drive, then sets drive_url. drive_url stays None until then,
+                #    so the Zoom-deletion gate (needs drive_url) waits for the compressed copy.
+                #    The (tiny) transcript is still uploaded now.
                 drive_url = None
                 drive_video_id = None
                 drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
 
                 if self.drive:
-                    # Upload video to Drive
-                    if drive_folder_id and os.path.exists(video_path):
-                        logger.info(f"   Uploading video to Drive...")
-                        try:
-                            drive_video_id = self.drive.upload_file(video_path, video_filename, drive_folder_id)
-                            drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
-                            logger.info(f"   Drive Video: {drive_url}")
-                        except Exception as e:
-                            logger.warning(f"   Drive video upload failed (non-critical): {e}")
-                    else:
-                        logger.warning(f"   No Drive folder for playlist '{playlist}' or video not found.")
-
                     # Upload transcript to Drive
                     if transcript_folder_id and transcript_url and os.path.exists(transcript_path):
                         try:
@@ -677,30 +669,19 @@ class BackgroundService(threading.Thread):
                     logger.error(f"   No MP4 found in Zoom recording: {zoom_id}")
                     continue
 
-                # Re-download video from Zoom
-                logger.info(f"   Re-downloading from Zoom for Drive upload...")
-                zoom_client.download_file(video_url, video_path)
-                logger.info(f"   Downloaded: {video_filename}")
-
+                # PLAN A: do NOT re-download the raw video or upload it to Drive here (no double
+                # upload). The night HEVC worker handles the compressed Drive upload from Zoom.
+                # Only the (tiny) transcript is fetched + uploaded now; drive_url stays None so the
+                # Zoom-deletion gate waits for the compressed copy.
                 if transcript_url:
                     try:
                         zoom_client.download_file(transcript_url, transcript_path)
                     except Exception:
                         pass
 
-                # Upload to Drive
                 drive_url = None
                 drive_video_id = None
                 drive_folder_id, transcript_folder_id = self._get_drive_folders(playlist)
-
-                if self.drive and drive_folder_id:
-                    try:
-                        logger.info(f"   Uploading video to Drive...")
-                        drive_video_id = self.drive.upload_file(video_path, video_filename, drive_folder_id)
-                        drive_url = f"https://drive.google.com/file/d/{drive_video_id}/view"
-                        logger.info(f"   Drive: {drive_url}")
-                    except Exception as e:
-                        logger.warning(f"   Drive video upload failed: {e}")
 
                 if transcript_url and os.path.exists(transcript_path) and transcript_folder_id and self.drive:
                     try:

@@ -1,11 +1,15 @@
 requests
-google-api-python-client
-google-auth-oauthlib
+# Google stack pinned to the host venv's proven versions. The Drive OAuth token is a PICKLED
+# credentials object written by google-auth 2.49.1; newer google-auth cannot read it and falls back
+# to interactive browser auth (fails headless). Keep these in sync with the host to avoid that.
+google-api-python-client==2.193.0
+google-auth==2.49.1
+google-auth-oauthlib==1.3.1
 python-dotenv
 tinydb
 yt-dlp
-gspread
-oauth2client
+gspread==6.2.1
+oauth2client==4.1.3
 fastapi
 uvicorn
 python-multipart

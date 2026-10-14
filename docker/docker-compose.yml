@@ -40,11 +40,15 @@ services:
     cpus: "1.5"
 
   hevc:
+    # HIBERNATING: NOT started by `docker compose up -d` (profile "hevc" excludes it) and NOT
+    # auto-restarted. A systemd timer (docker/systemd/) starts it nightly; the worker drains the
+    # queue + retries, then self-exits -> container stops -> 0 RAM all day until the next night.
+    profiles: ["hevc"]
     build:
       context: ..
       dockerfile: docker/Dockerfile.hevc
     container_name: ytz-hevc
-    restart: unless-stopped
+    restart: "no"
     env_file: [ ../.env ]              # same Drive/Zoom creds + config as the backend
     volumes:
       - ../secrets:/app/secrets
@@ -52,7 +56,9 @@ services:
       - ../config:/app/config
       - ../downloads:/app/downloads    # scratch space for download -> encode -> upload
     environment:
-      HEVC_WINDOW_UTC: "18:00-00:30"   # night window = 23:30-06:00 IST
+      HEVC_WINDOW_UTC: "16:30-01:30"   # night window = 22:00-07:00 IST
       HEVC_CRF: "28"                   # 28 = ~72% saving; 26 = sharper text, bigger file
+      HEVC_MAX_ATTEMPTS: "3"           # lifetime compression attempts per video
+      HEVC_COOLDOWN_MIN: "15"          # min minutes between attempts on the same video
     mem_limit: 1200m                   # HEVC encode ~450MB + headroom
     cpus: "1.0"                        # one core; the worker also nice's ffmpeg internally

@@ -59,4 +59,6 @@ COPY docker/supervisord.conf /etc/supervisor/conf.d/ytz.conf
 
 EXPOSE 8001 9002
 ENTRYPOINT ["/usr/bin/tini","--"]
-CMD ["supervisord","-c","/etc/supervisor/supervisord.conf"]
+# -n keeps supervisord in the foreground (PID 1 child) — without it the Debian default config
+# daemonizes and the container exits immediately (crash loop).
+CMD ["supervisord","-n","-c","/etc/supervisor/supervisord.conf"]

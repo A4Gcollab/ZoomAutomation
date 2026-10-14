@@ -1,0 +1,12 @@
+# Fires ytz-hevc.service nightly at 16:30 UTC = 22:00 IST (start of the 22:00-07:00 IST window).
+# The worker itself enforces the window end (01:30 UTC / 07:00 IST) and exits, so only a START
+# timer is needed. Persistent=true runs a missed start if the box was off at 16:30 UTC.
+[Unit]
+Description=Nightly trigger for ytz HEVC compression (22:00 IST)
+
+[Timer]
+OnCalendar=*-*-* 16:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

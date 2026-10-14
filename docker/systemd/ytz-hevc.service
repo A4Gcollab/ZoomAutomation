@@ -1,0 +1,20 @@
+# ytz nightly HEVC compression — one-shot launcher.
+# Starts the (otherwise-dormant) hevc container; the worker drains the queue + retries, then
+# self-exits at the window end, and restart:"no" keeps it stopped (0 RAM) until the timer fires again.
+#
+# Install on the host:
+#   sudo cp docker/systemd/ytz-hevc.service docker/systemd/ytz-hevc.timer /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now ytz-hevc.timer
+#   # run once immediately to test:  sudo systemctl start ytz-hevc.service
+#   # watch it:                      docker logs -f ytz-hevc
+[Unit]
+Description=ytz nightly HEVC compression (starts the dormant hevc container)
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/opt/ZoomAutomation/docker
+# --profile hevc is required because the service is profile-gated out of the normal `up`
+ExecStart=/usr/bin/docker compose --profile hevc up -d hevc

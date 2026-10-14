@@ -228,13 +228,24 @@ def process(svc, kind, job):
         return True
     except Exception as e:
         err = str(e)[:500]
+        # Zoom 404 = the source recording has aged out of the Zoom cloud: PERMANENT, never
+        # recoverable by retrying. Mirror src/main.py's original handling ("Zoom recording not
+        # found (expired?) - marking COMPLETED without Drive"): give up at once instead of burning
+        # MAX_ATTEMPTS. Parking it (compress_attempts := MAX_ATTEMPTS) stops it from being picked
+        # as a "new" job, so it no longer blocks the new-videos-first queue or the backlog.
+        permanent = ("recording not found on Zoom" in err) or ("aged out of Zoom" in err)
         c = db()
-        c.execute("UPDATE recordings SET compress_error=? WHERE zoom_id=?", (err, zid))
-        if attempt_no >= MAX_ATTEMPTS:
-            add_log(c, "ERROR", f"[hevc] GIVING UP on {topic} after {attempt_no}/{MAX_ATTEMPTS} "
-                                f"(reset compress_attempts to retry): {err}")
+        if permanent:
+            c.execute("UPDATE recordings SET compress_error=?, compress_attempts=? WHERE zoom_id=?",
+                      (err, MAX_ATTEMPTS, zid))
+            add_log(c, "WARNING", f"[hevc] SKIP (Zoom source gone, not retrying) {topic}: {err}")
         else:
-            add_log(c, "ERROR", f"[hevc] FAILED {topic} (attempt {attempt_no}/{MAX_ATTEMPTS}): {err}")
+            c.execute("UPDATE recordings SET compress_error=? WHERE zoom_id=?", (err, zid))
+            if attempt_no >= MAX_ATTEMPTS:
+                add_log(c, "ERROR", f"[hevc] GIVING UP on {topic} after {attempt_no}/{MAX_ATTEMPTS} "
+                                    f"(reset compress_attempts to retry): {err}")
+            else:
+                add_log(c, "ERROR", f"[hevc] FAILED {topic} (attempt {attempt_no}/{MAX_ATTEMPTS}): {err}")
         c.commit(); c.close()
         return False
     finally:

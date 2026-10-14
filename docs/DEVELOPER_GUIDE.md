@@ -150,6 +150,14 @@ Nightly, resource-capped container that shrinks recordings to HEVC (~72% smaller
 - **Retry:** `compress_attempts` per row, `HEVC_MAX_ATTEMPTS=3` lifetime, ≥`HEVC_COOLDOWN_MIN=15` min apart. A
   failure never touches Zoom. Errors go to the row (`compress_error`) **and** `system_logs` (dashboard "System
   Logs" tab). Reset a parked video: `UPDATE recordings SET compress_attempts=0, compress_error=NULL WHERE zoom_id='…';`
+- **Permanent-failure shortcut (Zoom 404):** if the raw recording has aged out of the Zoom cloud (error contains
+  *"recording not found on Zoom"* / *"aged out of Zoom"*), that can never be recovered by retrying. The worker
+  gives up **immediately** — it sets `compress_attempts := HEVC_MAX_ATTEMPTS` and logs `[hevc] SKIP (Zoom source
+  gone, not retrying)` — instead of burning 3 attempts. This matters because a tier-1 "new" row (no `drive_url`)
+  has absolute priority over the backlog; without this, a batch of permanently-dead old videos would stall backlog
+  compression every night. Transient errors (network/quota/timeout) still retry normally. Mirrors the main
+  pipeline's original `src/main.py` handling ("Zoom recording not found (expired?) - marking COMPLETED without
+  Drive"). The video is unaffected otherwise — it's still safe on YouTube; only the secondary Drive copy is skipped.
 - Reuses `BackgroundService._init_clients()` for the Zoom/Drive clients (no duplicated logic).
 
 Tunables (compose `environment:`): `HEVC_WINDOW_UTC`, `HEVC_CRF` (28), `HEVC_MAX_ATTEMPTS`, `HEVC_COOLDOWN_MIN`,
@@ -176,6 +184,14 @@ Tunables (compose `environment:`): `HEVC_WINDOW_UTC`, `HEVC_CRF` (28), `HEVC_MAX
 - **Drive token revoked (~2026-10-10):** `invalid_grant: Token has been expired or revoked` — a **revocation**,
   not the Docker migration and not a Testing-mode expiry (the consent app is in Production). Fixed by re-auth
   (§4). The migration was proven innocent (Drive was already failing before the cutover).
+- **HEVC backlog stalled by dead videos (2026-10-14, fixed `0c84a57`):** after the first real run, 8 old videos
+  whose Zoom copies had aged out (404) were being retried as tier-1 "new" jobs and, because new jobs outrank the
+  backlog, kept the 565-video backlog from ever starting. Fixed by treating a Zoom 404 as permanent (park, don't
+  retry) — see §5 "Permanent-failure shortcut". ⚠️ The worker is **baked into the `ytz-hevc` image** (compose
+  mounts only `secrets/data/config/downloads`), so deploying a worker change = **rebuild the image** (`cd
+  /opt/ZoomAutomation/docker && docker compose --profile hevc build hevc`); the repo-root compose has no `hevc`
+  service. A running mid-encode container is not disturbed — the next nightly `up -d hevc` recreates it from the
+  new image.
 
 ---
 
